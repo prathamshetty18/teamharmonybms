@@ -302,12 +302,76 @@ async function runTests() {
   } finally {
     server.close();
   }
+
+  // 6. Testing routes/reliefRoutes.js directly
+  console.log('\n6. Testing routes/reliefRoutes.js POST /reliefs wiring with Person B createReliefRecord & chain.createRelief...');
+  const reliefRoutesRouter = require('../routes/reliefRoutes');
+  const reliefApp = express();
+  reliefApp.use(express.json());
+  reliefApp.use('/', reliefRoutesRouter);
+
+  const reliefServer = http.createServer(reliefApp);
+  await new Promise(resolve => reliefServer.listen(5006, resolve));
+  const reliefBaseUrl = 'http://localhost:5006';
+
+  try {
+    // 6.1 POST /reliefs with Person A parameters (zonePolygon, maxPerClaimWei, budgetWei)
+    process.env.CHAIN_MOCK = '1';
+    const testPolygon = {
+      type: 'Polygon',
+      coordinates: [
+        [
+          [77.560, 12.940],
+          [77.570, 12.940],
+          [77.570, 12.950],
+          [77.560, 12.950],
+          [77.560, 12.940]
+        ]
+      ]
+    };
+    const resA = await fetch(`${reliefBaseUrl}/reliefs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Relief Route Direct Test',
+        zonePolygon: testPolygon,
+        maxPerClaimWei: '4000000000000000000',
+        budgetWei: '80000000000000000000',
+        disasterType: 'flood'
+      })
+    });
+    assert.strictEqual(resA.status, 200, 'POST /reliefs on reliefRoutes.js must return 200');
+    const dataA = await resA.json();
+    assert(dataA.reliefId, 'Must return reliefId');
+    assert(dataA.txHash, 'Must return txHash from chain');
+    assert(dataA.zoneHash, 'Must return zoneHash from relief.js');
+    assert.strictEqual(dataA.disasterType, 'flood');
+    assert.strictEqual(dataA.maxPerClaim, '4000000000000000000');
+    assert.strictEqual(dataA.budget, '80000000000000000000');
+    console.log('   ✓ POST /reliefs: successfully calls createReliefRecord + chain.createRelief and merges response');
+
+    // 6.2 Missing budgetWei & maxPerClaimWei validation
+    const resBad = await fetch(`${reliefBaseUrl}/reliefs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Bad Relief Request'
+      })
+    });
+    assert.strictEqual(resBad.status, 400);
+    const badJson = await resBad.json();
+    assert(badJson.error);
+    console.log('   ✓ POST /reliefs: correctly validates missing fields and returns 400');
+  } finally {
+    reliefServer.close();
+  }
 }
 
 runTests().then(() => {
   console.log('\n======================================================');
   console.log('ALL PHASE 4 RELIEF MODULE TESTS PASSED! (100%)');
   console.log('======================================================\n');
+  process.exit(0);
 }).catch(err => {
   console.error('\n❌ PHASE 4 TEST FAILED:', err);
   process.exit(1);

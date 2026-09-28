@@ -167,9 +167,16 @@ async function getEligibleClaimsForRelief(reliefIdOrDoc) {
       amt = computeAmount(claimForCompute, relief, lvl);
     }
 
+    const calculatedAmt = amt;
+    const sanctionedAmt = payout ? (payout.officiallySanctionedAmount || payout.sanctionedAmount || null) : null;
+
     processedClaims.push({
       claimId: String(c.claimId),
       amount: amt,
+      calculatedAmount: calculatedAmt,
+      estimatedAmount: calculatedAmt,
+      officiallySanctionedAmount: sanctionedAmt,
+      sanctionedAmount: sanctionedAmt,
       scaledAmount: amt,
       damageLevel: lvl,
       payoutStatus: status,
@@ -205,6 +212,7 @@ async function getEligibleClaimsForRelief(reliefIdOrDoc) {
  * Retrieves the payout record for a claimId.
  * Status is guaranteed to be one of: None | Assessed | Approved | Paid
  * Amount is in wei string.
+ * Stores both Calculated/Estimated Amount and Officially Sanctioned Amount.
  * 
  * @param {string} claimId - Claim ID
  * @returns {Promise<object>} Payout record
@@ -218,6 +226,10 @@ async function getPayoutRecord(claimId) {
       reliefId: null,
       status: 'None',
       amount: '0',
+      calculatedAmount: '0',
+      estimatedAmount: '0',
+      officiallySanctionedAmount: null,
+      sanctionedAmount: null,
       damageLevel: null,
       approvals: [],
       txHash: null,
@@ -226,10 +238,17 @@ async function getPayoutRecord(claimId) {
     };
   }
 
+  const calculatedAmt = payout.calculatedAmount || payout.estimatedAmount || payout.amount || '0';
+  const sanctionedAmt = payout.officiallySanctionedAmount || payout.sanctionedAmount || null;
+
   return {
     ...payout,
     status: payout.status || 'None',
-    amount: payout.amount || '0'
+    amount: payout.amount || calculatedAmt,
+    calculatedAmount: calculatedAmt,
+    estimatedAmount: calculatedAmt,
+    officiallySanctionedAmount: sanctionedAmt,
+    sanctionedAmount: sanctionedAmt
   };
 }
 

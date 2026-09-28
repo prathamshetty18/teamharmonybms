@@ -28,6 +28,7 @@ const {
   validateApprovePayoutInput,
   validateReleasePayoutInput
 } = require('../utils/validate');
+const { ROLES, requireRole } = require('../auth');
 
 // Attempt to load Person A's chain.js if present on disk
 let defaultChain = null;
@@ -48,7 +49,7 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
   // calls chain.createClaim(ownerHash, evidenceHash, lat, lon) from chain.js,
   // saves result to Atlas via store.save('claims', ...). Status starts Pending.
   // -------------------------------------------------------------
-  router.post('/claims', fileUploadMiddleware, validateClaimInput, async (req, res, next) => {
+  router.post(['/claims', '/parcels'], fileUploadMiddleware, requireRole(ROLES.FARMER, ROLES.GOVERNMENT_OFFICER), validateClaimInput, async (req, res, next) => {
     try {
       const {
         ownerName,
@@ -57,8 +58,39 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
         parcelAreaAcres = 2.0,
         confirmedAreaAcres = null,
         notes = '',
-        beneficiaryAddress = '0x' + Math.random().toString(16).substring(2, 42).padEnd(40, '0')
+        beneficiaryAddress = '0x' + Math.random().toString(16).substring(2, 42).padEnd(40, '0'),
+        surveyNumber = req.body.survey_number || ('Sy. No. ' + Math.floor(100 + Math.random() * 900) + '/1'),
+        plotNumber = req.body.plot_number || ('Plot ' + Math.floor(1 + Math.random() * 50)),
+        state = 'Karnataka',
+        district = 'Bangalore South',
+        taluk = 'Bangalore South',
+        village = 'Basavanagudi',
+        landUseFarmerDeclared = req.body.farmerDeclaredLandUse || req.body.landUse || 'Agricultural',
+        landUseGovtRecord = req.body.govtRecordLandUse || 'Agricultural',
+        landUseGroundVerified = req.body.groundVerifiedLandUse || 'Pending',
+        landUseFinalApproved = req.body.finalApprovedLandUse || 'Pending',
+        workflowStatus = 'Submitted'
       } = req.body;
+
+      // Handle area conversion on storage: store one (acres), convert on read
+      let finalAreaAcres = 2.0;
+      if (req.body.parcelAreaAcres != null) {
+        finalAreaAcres = Number(req.body.parcelAreaAcres);
+      } else if (req.body.areaAcres != null) {
+        finalAreaAcres = Number(req.body.areaAcres);
+      } else if (req.body.areaHectares != null || req.body.hectares != null) {
+        const h = Number(req.body.areaHectares || req.body.hectares);
+        finalAreaAcres = Number((h / 0.404686).toFixed(4));
+      } else if (req.body.areaSqm != null || req.body.sqm != null) {
+        const s = Number(req.body.areaSqm || req.body.sqm);
+        finalAreaAcres = Number((s / 4046.8564).toFixed(4));
+      } else if (req.body.area && typeof req.body.area === 'object') {
+        if (req.body.area.acres != null) finalAreaAcres = Number(req.body.area.acres);
+        else if (req.body.area.hectares != null) finalAreaAcres = Number((Number(req.body.area.hectares) / 0.404686).toFixed(4));
+        else if (req.body.area.sqm != null) finalAreaAcres = Number((Number(req.body.area.sqm) / 4046.8564).toFixed(4));
+      } else if (typeof req.body.area === 'number') {
+        finalAreaAcres = Number(req.body.area);
+      }
 
       const allClaims = await store.getAll('claims');
       const nextId = (allClaims.length + 1).toString();
@@ -131,8 +163,14 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
       const disputeNotes = dispute ? dispute.notes : null;
       const finalNotes = notes || disputeNotes || '';
 
+      const specStatus = conflicts.length > 0
+        ? 'DISPUTED'
+        : store.normalizeSpecStatus(req.body.status || req.body.verificationStatus || 'SUBMITTED');
+      const onChainStatus = store.mapToOnChainStatus(specStatus);
+
       const newClaim = {
         claimId: primaryClaimId,
+        landId: primaryClaimId,
         ownerName,
         nationalId,
         ownerHash,
@@ -141,10 +179,24 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
         latE6,
         lonE6,
         referencePoint: [avgLon, avgLat],
-        parcelAreaAcres: Number(parcelAreaAcres),
+        surveyNumber,
+        plotNumber,
+        state,
+        district,
+        taluk,
+        village,
+        landUseFarmerDeclared,
+        landUseGovtRecord,
+        landUseGroundVerified,
+        landUseFinalApproved,
+        workflowStatus,
+        verificationStatus: specStatus,
+        onChainStatus,
+        parcelAreaAcres: finalAreaAcres,
         confirmedAreaAcres: confirmedAreaAcres != null ? Number(confirmedAreaAcres) : null,
+        area: store.formatAreaUnits(finalAreaAcres),
         score: 0,
-        status,
+        status: conflicts.length > 0 ? 'Disputed' : 'Pending',
         attestations: [],
         dispute,
         disputeReason,
@@ -160,7 +212,44 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
 
       // Save result to Atlas via store.save('claims', ...)
       const saved = await store.save('claims', newClaim);
-      res.status(201).json(saved);
+
+      // Record immutable Audit Log for claim creation
+      await store.recordAuditLog({
+        who: req.user ? `${req.user.name} (${req.user.role})` : ownerName,
+        what: 'CLAIM_SUBMITTED',
+        landId: primaryClaimId,
+        prevValue: 'DRAFT',
+        newValue: specStatus,
+        remarks: finalNotes || 'New parcel application submitted for cadastral verification',
+        metadata: {
+          surveyNumber,
+          plotNumber,
+          parcelAreaAcres: finalAreaAcres
+        }
+      });
+
+      if (conflicts.length > 0) {
+        await store.recordAuditLog({
+          who: 'Geospatial Overlap Engine',
+          what: 'OVERLAP_DISPUTED',
+          landId: primaryClaimId,
+          prevValue: 'SUBMITTED',
+          newValue: 'DISPUTED',
+          remarks: disputeReason,
+          metadata: { conflicts }
+        });
+      }
+
+      const enrichedSaved = {
+        ...saved,
+        landId: saved.landId || saved.claimId,
+        area: store.formatAreaUnits(saved.parcelAreaAcres || 0),
+        workflowStatus: saved.workflowStatus || 'Submitted',
+        verificationStatus: saved.verificationStatus || specStatus,
+        onChainStatus: saved.onChainStatus || onChainStatus,
+        documents: []
+      };
+      res.status(201).json(enrichedSaved);
     } catch (err) {
       next(err);
     }
@@ -169,10 +258,26 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
   // -------------------------------------------------------------
   // 2. GET /claims - List all land parcels for map markers
   // -------------------------------------------------------------
-  router.get('/claims', async (req, res, next) => {
+  router.get(['/claims', '/parcels'], async (req, res, next) => {
     try {
       const all = await store.getAll('claims');
-      res.json(all);
+      const enriched = all.map(claim => {
+        const acres = claim.parcelAreaAcres != null ? claim.parcelAreaAcres : (claim.confirmedAreaAcres || 0);
+        const verificationStatus = claim.verificationStatus || (claim.status === 'Verified' ? 'APPROVED' : (claim.status === 'Disputed' ? 'DISPUTED' : 'SUBMITTED'));
+        const onChainStatus = store.mapToOnChainStatus(verificationStatus);
+        const displayStatus = req.query.specStatus === 'true' ? verificationStatus : (claim.status || onChainStatus);
+
+        return {
+          ...claim,
+          landId: claim.landId || claim.claimId,
+          area: store.formatAreaUnits(acres),
+          workflowStatus: claim.workflowStatus || (claim.status === 'Verified' ? 'Approved' : 'Submitted'),
+          verificationStatus,
+          onChainStatus,
+          status: displayStatus
+        };
+      });
+      res.json(enriched);
     } catch (err) {
       next(err);
     }
@@ -227,7 +332,7 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
   // 3. GET /claims/:id - Parcel details, attestation history,
   // dispute status by on-chain claimId. Merge Atlas data with chain.getClaim(claimId) read.
   // -------------------------------------------------------------
-  router.get('/claims/:id', async (req, res, next) => {
+  router.get(['/claims/:id', '/parcels/:id'], async (req, res, next) => {
     try {
       const claim = await store.getById('claims', req.params.id);
       if (!claim) {
@@ -255,6 +360,26 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
         }
       }
 
+      const acres = merged.parcelAreaAcres != null ? merged.parcelAreaAcres : (merged.confirmedAreaAcres || 0);
+      const docs = await store.getDocumentsByClaimId(req.params.id);
+      const auditLogs = await store.getAuditLogsByLandId(req.params.id);
+
+      const verificationStatus = merged.verificationStatus || (merged.status === 'Verified' ? 'APPROVED' : (merged.status === 'Disputed' ? 'DISPUTED' : 'SUBMITTED'));
+      const onChainStatus = store.mapToOnChainStatus(verificationStatus);
+      const displayStatus = req.query.specStatus === 'true' ? verificationStatus : (merged.status || onChainStatus);
+
+      merged = {
+        ...merged,
+        landId: merged.landId || merged.claimId,
+        area: store.formatAreaUnits(acres),
+        workflowStatus: merged.workflowStatus || (merged.status === 'Verified' ? 'Approved' : 'Submitted'),
+        verificationStatus,
+        onChainStatus,
+        status: displayStatus,
+        documents: docs,
+        auditLogs
+      };
+
       res.json(merged);
     } catch (err) {
       next(err);
@@ -265,7 +390,7 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
   // 4. POST /claims/:id/attest - Community attestation
   // After each attest call, save attestation history to Atlas via store.update
   // -------------------------------------------------------------
-  router.post('/claims/:id/attest', validateAttestInput, async (req, res, next) => {
+  router.post('/claims/:id/attest', requireRole(ROLES.NGO_COMMUNITY_VERIFIER, ROLES.GOVERNMENT_OFFICER), validateAttestInput, async (req, res, next) => {
     try {
       const claim = await store.getById('claims', req.params.id);
       if (!claim) {
@@ -317,8 +442,21 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
       const updated = await store.update('claims', req.params.id, {
         attestations: updatedAttestations,
         score: newScore,
-        status: newStatus
+        status: newStatus,
+        verificationStatus: newStatus === 'Verified' ? 'APPROVED' : (claim.verificationStatus || 'COMMUNITY/NGO_VERIFICATION'),
+        onChainStatus: newStatus
       });
+
+      if (newStatus !== claim.status) {
+        await store.recordAuditLog({
+          who: req.user ? `${req.user.name} (${req.user.role})` : attesterName,
+          what: 'ATTESTATION_THRESHOLD_REACHED',
+          landId: req.params.id,
+          prevValue: claim.verificationStatus || claim.status,
+          newValue: 'APPROVED',
+          remarks: `Attestation score reached ${newScore} >= 5. Parcel approved by community.`
+        });
+      }
 
       res.json({
         message: 'Attestation recorded successfully',
@@ -333,7 +471,7 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
   // -------------------------------------------------------------
   // 5. POST /claims/:id/dispute - Flag boundary conflict
   // -------------------------------------------------------------
-  router.post('/claims/:id/dispute', validateDisputeInput, async (req, res, next) => {
+  router.post('/claims/:id/dispute', requireRole(ROLES.GOVERNMENT_OFFICER, ROLES.NGO_COMMUNITY_VERIFIER), validateDisputeInput, async (req, res, next) => {
     try {
       const claim = await store.getById('claims', req.params.id);
       if (!claim) {
@@ -367,9 +505,20 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
 
       const updated = await store.update('claims', req.params.id, {
         status: 'Disputed',
+        onChainStatus: 'Disputed',
+        verificationStatus: 'DISPUTED',
         dispute: disputeRecord,
         disputeReason: reason,
         disputeNotes: req.body.notes || `Dispute flagged: ${reason}`
+      });
+
+      await store.recordAuditLog({
+        who: req.user ? `${req.user.name} (${req.user.role})` : disputerName,
+        what: 'DISPUTE_FILED',
+        landId: req.params.id,
+        prevValue: claim.verificationStatus || claim.status,
+        newValue: 'DISPUTED',
+        remarks: reason
       });
 
       res.json({
@@ -385,7 +534,7 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
   // -------------------------------------------------------------
   // 6. POST /claims/:id/resolve - Admin resolves dispute
   // -------------------------------------------------------------
-  router.post('/claims/:id/resolve', validateResolveInput, async (req, res, next) => {
+  router.post('/claims/:id/resolve', requireRole(ROLES.GOVERNMENT_OFFICER), validateResolveInput, async (req, res, next) => {
     try {
       const claim = await store.getById('claims', req.params.id);
       if (!claim) {
@@ -398,8 +547,6 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
         arbiterAddress = '0x000000000000000000000000000000000000dEaD'
       } = req.body;
 
-      const resolvedStatus = restore === true ? 'Verified' : 'Pending';
-
       // Call chain.resolveDispute if available
       if (chain && typeof chain.resolveDispute === 'function') {
         try {
@@ -409,8 +556,13 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
         }
       }
 
+      const resolvedStatus = restore === true ? 'Verified' : 'Pending';
+      const resolvedSpecStatus = restore === true ? 'GOVERNMENT_REVIEW' : 'SUBMITTED';
+
       const updated = await store.update('claims', req.params.id, {
         status: resolvedStatus,
+        onChainStatus: resolvedStatus,
+        verificationStatus: resolvedSpecStatus,
         dispute: null,
         resolution: {
           restored: restore,
@@ -418,6 +570,15 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
           arbiterAddress,
           resolvedAt: new Date().toISOString()
         }
+      });
+
+      await store.recordAuditLog({
+        who: req.user ? `${req.user.name} (${req.user.role})` : (arbiterAddress || 'Authorized Arbiter'),
+        what: 'DISPUTE_RESOLVED',
+        landId: req.params.id,
+        prevValue: 'DISPUTED',
+        newValue: resolvedSpecStatus,
+        remarks: resolutionNotes
       });
 
       res.json({
@@ -447,7 +608,7 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
   // Accepts zone polygon, ratePerAcre, maxPerClaim, budget (wei strings)
   // Computes zoneHash, saves to Atlas. Calls chain.createRelief if available.
   // -------------------------------------------------------------
-  router.post('/reliefs', validateReliefInput, async (req, res, next) => {
+  router.post('/reliefs', requireRole(ROLES.GOVERNMENT_OFFICER), validateReliefInput, async (req, res, next) => {
     try {
       const saved = await createReliefRecord(req.body);
 
@@ -500,7 +661,7 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
   // Accepts { reliefId, answers, confirmedAreaAcres? }
   // Computes damageLevel from answers, stores raw answers + level in payouts
   // -------------------------------------------------------------
-  router.post('/claims/:id/assess', fileUploadMiddleware, validateAssessInput, async (req, res, next) => {
+  router.post('/claims/:id/assess', fileUploadMiddleware, requireRole(ROLES.GROUND_VERIFICATION_OFFICER, ROLES.GOVERNMENT_OFFICER), validateAssessInput, async (req, res, next) => {
     try {
       const claim = await store.getById('claims', req.params.id);
       if (!claim) {
@@ -602,7 +763,11 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
         confirmedAreaAcres: confirmedAreaAcres != null ? Number(confirmedAreaAcres) : null,
         damageNotes,
         damageEvidenceHash,
-        amount: calculatedAmount,
+        calculatedAmount,
+        estimatedAmount: calculatedAmount,
+        officiallySanctionedAmount: req.body.officiallySanctionedAmount || req.body.sanctionedAmount || (existingPayout ? existingPayout.officiallySanctionedAmount : null),
+        sanctionedAmount: req.body.sanctionedAmount || req.body.officiallySanctionedAmount || (existingPayout ? existingPayout.sanctionedAmount : null),
+        amount: (req.body.officiallySanctionedAmount || req.body.sanctionedAmount) ? String(req.body.officiallySanctionedAmount || req.body.sanctionedAmount) : ((existingPayout && existingPayout.officiallySanctionedAmount) || calculatedAmount),
         approvals: existingPayout && existingPayout.approvals ? existingPayout.approvals : [],
         txHash: null,
         releasedAt: null,
@@ -622,7 +787,7 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
   // -------------------------------------------------------------
   // 12. POST /claims/:id/approve-payout - Officer approval
   // -------------------------------------------------------------
-  router.post('/claims/:id/approve-payout', validateApprovePayoutInput, async (req, res, next) => {
+  router.post('/claims/:id/approve-payout', requireRole(ROLES.GOVERNMENT_OFFICER), validateApprovePayoutInput, async (req, res, next) => {
     try {
       const claim = await store.getById('claims', req.params.id);
       if (!claim) {
@@ -678,10 +843,18 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
         }
       }
 
-      const updated = await store.update('payouts', req.params.id, {
+      const payoutUpdates = {
         approvals: updatedApprovals,
         status: newStatus
-      });
+      };
+      const sanctionedInBody = req.body.officiallySanctionedAmount || req.body.sanctionedAmount;
+      if (sanctionedInBody != null) {
+        payoutUpdates.officiallySanctionedAmount = String(sanctionedInBody);
+        payoutUpdates.sanctionedAmount = String(sanctionedInBody);
+        payoutUpdates.amount = String(sanctionedInBody);
+      }
+
+      const updated = await store.update('payouts', req.params.id, payoutUpdates);
 
       res.json({
         message: `Payout approved by officer '${officer}' (${updatedApprovals.length}/2 approvals)`,
@@ -693,9 +866,70 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
   });
 
   // -------------------------------------------------------------
+  // 12b. POST & PATCH /claims/:id/sanction - Officially sanction relief amount
+  // Separate from Calculated/Estimated Amount
+  // -------------------------------------------------------------
+  const sanctionHandler = async (req, res, next) => {
+    try {
+      const claim = await store.getById('claims', req.params.id);
+      if (!claim) {
+        return res.status(404).json({ error: `Claim with id '${req.params.id}' not found` });
+      }
+
+      const payout = await store.getById('payouts', req.params.id);
+      if (!payout || payout.status === 'None') {
+        return res.status(400).json({
+          error: 'No active assessment found for this claim. Assessment must be performed before sanctioning.'
+        });
+      }
+
+      const sanctioned = req.body.officiallySanctionedAmount || req.body.sanctionedAmount || req.body.amount;
+      if (sanctioned === undefined || sanctioned === null || String(sanctioned).trim() === '') {
+        return res.status(400).json({
+          error: 'Missing required field: officiallySanctionedAmount (or sanctionedAmount)'
+        });
+      }
+
+      const sanctionedStr = String(sanctioned);
+      const officer = req.body.officer || req.headers['x-user-name'] || 'Government Officer';
+      const notes = req.body.notes || req.body.remarks || 'Officially sanctioned by Government Officer';
+
+      const updated = await store.update('payouts', req.params.id, {
+        officiallySanctionedAmount: sanctionedStr,
+        sanctionedAmount: sanctionedStr,
+        amount: sanctionedStr,
+        sanctionedBy: officer,
+        sanctionedAt: new Date().toISOString(),
+        sanctionNotes: notes
+      });
+
+      await store.recordAuditLog({
+        who: officer,
+        what: 'RELIEF_SANCTIONED',
+        landId: req.params.id,
+        prevValue: payout.officiallySanctionedAmount || payout.amount || '0',
+        newValue: sanctionedStr,
+        remarks: `Relief officially sanctioned: ${sanctionedStr} wei. Notes: ${notes}`
+      });
+
+      res.json({
+        message: `Officially sanctioned amount updated to ${sanctionedStr} wei`,
+        payout: updated
+      });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  router.post('/claims/:id/sanction', requireRole(ROLES.GOVERNMENT_OFFICER), sanctionHandler);
+  router.patch('/claims/:id/sanction', requireRole(ROLES.GOVERNMENT_OFFICER), sanctionHandler);
+  router.post('/parcels/:id/sanction', requireRole(ROLES.GOVERNMENT_OFFICER), sanctionHandler);
+  router.patch('/parcels/:id/sanction', requireRole(ROLES.GOVERNMENT_OFFICER), sanctionHandler);
+
+  // -------------------------------------------------------------
   // 13. POST /claims/:id/release-payout - Release approved compensation
   // -------------------------------------------------------------
-  router.post('/claims/:id/release-payout', validateReleasePayoutInput, async (req, res, next) => {
+  router.post('/claims/:id/release-payout', requireRole(ROLES.GOVERNMENT_OFFICER), validateReleasePayoutInput, async (req, res, next) => {
     try {
       const claim = await store.getById('claims', req.params.id);
       if (!claim) {
@@ -780,6 +1014,179 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
       }
       const payout = await getPayoutRecord(req.params.id);
       res.json(payout);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // -------------------------------------------------------------
+  // 15. POST /claims/:id/workflow - Missing-document workflow
+  // Status transitions: Submitted -> Missing Documents Detected -> Special Verification -> Ground Verification -> Government Review -> Approved/Rejected
+  // CRITICAL RULE: Never auto-reject for missing docs alone
+  // -------------------------------------------------------------
+  router.post(['/claims/:id/workflow', '/parcels/:id/workflow'], async (req, res, next) => {
+    try {
+      const claim = await store.getById('claims', req.params.id);
+      if (!claim) {
+        return res.status(404).json({ error: `Claim with id '${req.params.id}' not found` });
+      }
+
+      const {
+        workflowStatus,
+        reason = '',
+        notes = '',
+        landUseGroundVerified,
+        landUseFinalApproved
+      } = req.body || {};
+
+      const VALID_WORKFLOW_STATUSES = [
+        'Submitted',
+        'Missing Documents Detected',
+        'Special Verification',
+        'Ground Verification',
+        'Government Review',
+        'Approved',
+        'Rejected'
+      ];
+
+      if (!workflowStatus || !VALID_WORKFLOW_STATUSES.includes(workflowStatus)) {
+        return res.status(400).json({
+          error: `Invalid workflowStatus '${workflowStatus}'. Must be one of: ${VALID_WORKFLOW_STATUSES.join(', ')}`
+        });
+      }
+
+      // INVARIANT: Never auto-reject for missing docs alone
+      const textToCheck = `${reason} ${notes}`;
+      const isMissingDocsReason =
+        (/missing/i.test(textToCheck) && /(document|doc|paperwork|record|proof|title)/i.test(textToCheck)) ||
+        req.body.isMissingDocsOnly === true ||
+        req.body.missingDocsAlone === true;
+
+      if (workflowStatus === 'Rejected' && isMissingDocsReason) {
+        return res.status(400).json({
+          error: 'Cannot reject application for missing documents alone. Route to Special Verification for community/field investigation.'
+        });
+      }
+
+      // If current state is Missing Documents Detected and attempting to reject without independent fraud grounds:
+      if (workflowStatus === 'Rejected' && claim.workflowStatus === 'Missing Documents Detected' && !reason.toLowerCase().includes('fraud')) {
+        return res.status(400).json({
+          error: 'Cannot reject application for missing documents alone. Route to Special Verification for community/field investigation.'
+        });
+      }
+
+      const prevWf = claim.workflowStatus || claim.verificationStatus || claim.status;
+      const specEquivalent = workflowStatus === 'Approved'
+        ? 'APPROVED'
+        : (workflowStatus === 'Rejected'
+            ? 'REJECTED'
+            : (workflowStatus === 'Ground Verification'
+                ? 'GROUND_VERIFICATION'
+                : (workflowStatus === 'Special Verification'
+                    ? 'COMMUNITY/NGO_VERIFICATION'
+                    : 'GOVERNMENT_REVIEW')));
+      const onChainStatus = store.mapToOnChainStatus(specEquivalent);
+
+      const updates = {
+        workflowStatus,
+        verificationStatus: specEquivalent,
+        onChainStatus,
+        workflowNotes: notes || reason || `Transitioned to ${workflowStatus}`,
+        updatedAt: new Date().toISOString()
+      };
+
+      if (landUseGroundVerified) updates.landUseGroundVerified = landUseGroundVerified;
+      if (landUseFinalApproved) updates.landUseFinalApproved = landUseFinalApproved;
+
+      if (workflowStatus === 'Approved') {
+        updates.status = 'Verified';
+        if (!updates.landUseFinalApproved) {
+          updates.landUseFinalApproved = claim.landUseGroundVerified || claim.landUseFarmerDeclared || 'Agricultural';
+        }
+      }
+
+      const updated = await store.update('claims', req.params.id, updates);
+
+      // Record immutable Audit Log
+      await store.recordAuditLog({
+        who: req.user ? `${req.user.name} (${req.user.role})` : 'Authorized Verifier',
+        what: `WORKFLOW_TRANSITION_${workflowStatus.replace(/\s+/g, '_').toUpperCase()}`,
+        landId: req.params.id,
+        prevValue: prevWf,
+        newValue: workflowStatus,
+        remarks: notes || reason || `Workflow transitioned to ${workflowStatus}`,
+        metadata: { onChainStatus, specEquivalent }
+      });
+
+      const docs = await store.getDocumentsByClaimId(req.params.id);
+      const acres = updated.parcelAreaAcres != null ? updated.parcelAreaAcres : (updated.confirmedAreaAcres || 0);
+
+      res.json({
+        message: `Application workflow status updated to '${workflowStatus}'`,
+        claim: {
+          ...updated,
+          landId: updated.landId || updated.claimId,
+          area: store.formatAreaUnits(acres),
+          documents: docs
+        }
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // -------------------------------------------------------------
+  // 16. POST /claims/:id/missing-docs - Detect missing documents triage
+  // Flags application for Special Verification pathway (NEVER REJECTS)
+  // -------------------------------------------------------------
+  router.post(['/claims/:id/missing-docs', '/parcels/:id/missing-docs'], async (req, res, next) => {
+    try {
+      const claim = await store.getById('claims', req.params.id);
+      if (!claim) {
+        return res.status(404).json({ error: `Claim with id '${req.params.id}' not found` });
+      }
+
+      const {
+        missingDocumentTypes = ['title_deed'],
+        notes = 'Missing mandatory primary land ownership deed'
+      } = req.body || {};
+
+      const updated = await store.update('claims', req.params.id, {
+        workflowStatus: 'Missing Documents Detected',
+        missingDocumentTypes,
+        missingDocsNotes: notes,
+        workflowNotes: `Missing documents detected: ${missingDocumentTypes.join(', ')}. Routed to Special Verification pathway.`
+      });
+
+      const docs = await store.getDocumentsByClaimId(req.params.id);
+      const acres = updated.parcelAreaAcres != null ? updated.parcelAreaAcres : (updated.confirmedAreaAcres || 0);
+
+      res.json({
+        message: 'Missing documents recorded; application routed to Missing Documents Detected (not rejected)',
+        claim: {
+          ...updated,
+          landId: updated.landId || updated.claimId,
+          area: store.formatAreaUnits(acres),
+          documents: docs
+        },
+        recommendedNextStep: 'Special Verification'
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // -------------------------------------------------------------
+  // 17. GET /claims/:id/audit-logs - Parcel-specific audit trail
+  // -------------------------------------------------------------
+  router.get(['/claims/:id/audit-logs', '/parcels/:id/audit-logs'], async (req, res, next) => {
+    try {
+      const claim = await store.getById('claims', req.params.id);
+      if (!claim) {
+        return res.status(404).json({ error: `Claim with id '${req.params.id}' not found` });
+      }
+      const logs = await store.getAuditLogsByLandId(req.params.id);
+      res.json(logs);
     } catch (err) {
       next(err);
     }
