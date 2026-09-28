@@ -1,0 +1,23 @@
+{
+  "name": "teamharmony-bms-mst-blockchain",
+  "version": "1.0.0",
+  "description": "Post-Disaster Land Rights & Relief on MST Blockchain - BMSCE Buildathon 2026",
+  "main": "scripts/chain.js",
+  "scripts": {
+    "compile": "node scripts/compile.js",
+    "setup:roles": "node scripts/setupRoles.js",
+    "deploy": "node scripts/deploy.js",
+    "deploy:relief": "node scripts/deployRelief.js",
+    "test": "node test/runTests.js",
+    "demo": "node scripts/interact.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "ethers": "^6.13.2",
+    "fs-extra": "^11.2.0",
+    "solc": "0.8.20"
+  },
+  "devDependencies": {
+    "hardhat": "^3.18.0"
+  }
+}
