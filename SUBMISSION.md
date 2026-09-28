@@ -1,18 +1,63 @@
-# Harmony BMS — Final Submission & Freeze Readiness Verification
+# Hackathon Submission Ledger (Verified On-Chain on MST Testnet)
 
-**Project:** Team Harmony BMS (Post-Disaster Land Rights & Parametric Relief Engine)  
-**Person B Scope:** Data & Logic Layer, Geospatial Engine (Turf.js), SDRF Criteria Scoring, Relief & Payout Escrow, Dual-Officer Mismatch Validation, Live Testnet Integration & Fraud Resistance  
-**Target Blockchain:** MST Blockchain Testnet  
-**RPC URL:** `https://testnetrpc.mstblockchain.com`  
-**Chain ID:** `91562037` (`0x5752035`)  
+> **Project:** Post-Disaster Land Rights & Parametric Relief Engine on MST Blockchain  
+> **Team:** Team Harmony (BMS College of Engineering Buildathon 2026)  
+> **Architecture:**  
+>   - **Person A (Blockchain & Smart Contracts):** Srujan (`LandRegistry.sol`, `ReliefFund.sol`, `chain.js`, multi-wallet role architecture)  
+>   - **Person B (Data & Logic Layer):** Geospatial Boundary Engine (Turf.js), SDRF Parametric Scoring, MongoDB Atlas Data Layer, Dual-Officer Mismatch Validation, Phase 5 Integration & Phase 7 Freeze Prep  
+> **Target Blockchain:** MST Blockchain Testnet  
+> **RPC Endpoint:** `https://testnetrpc.mstblockchain.com`  
+> **Chain ID:** `91562037` (`0x5752035`)  
 
 ---
 
-## 1. Confirmed Transaction Hashes (Phase 5 Live Testnet Happy Path)
+## 1. Smart Contracts
 
-All transactions below were executed and confirmed against the live **MST Blockchain Testnet** across 3 distinct real-world citizen land parcels.
+> Deployed to MST Testnet and verified on-chain via block receipts and bytecode checks.
 
-### Happy Path Run 1: Parcel #1 — Ramesh Gowda (Catastrophic Level 4 Flood)
+| Contract | Network | Live Address | Deployment Tx Hash |
+|---|---|---|---|
+| **`LandRegistry.sol`** | MST Testnet | `0x9A587a9a4b990bb14Cd00D6432487271f00c2A5c` | `0x3dd8689e5b428bde63bf806edbdfcbdfaf759dd7082b8ff15d4afe0cc5201892` |
+| **`ReliefFund.sol`** | MST Testnet | `0x41241011dE47C4eb30dFcc45097ceD1f73a7Bd25` | `0x4af4bce5a3349416bd697a7da55958d5a87b17be2494d00fba4cb6e6136c540c` |
+
+<!-- START_LAND_REGISTRY -->
+### Deployment: LandRegistry
+- **Contract Address:** `0x9A587a9a4b990bb14Cd00D6432487271f00c2A5c`
+- **Deployment Tx Hash:** `0x3dd8689e5b428bde63bf806edbdfcbdfaf759dd7082b8ff15d4afe0cc5201892`
+- **Block Number:** `#5786240`
+- **Block Timestamp:** `2026-09-28T16:46:19.000Z`
+- **Gas Used:** `1320174`
+- **Deployer:** `0xB436E9CC1311948875220bF63a2AF6dde3e86D92`
+<!-- END_LAND_REGISTRY -->
+
+<!-- START_RELIEF_FUND -->
+### Deployment: ReliefFund
+- **Contract Address:** `0x41241011dE47C4eb30dFcc45097ceD1f73a7Bd25`
+- **Linked LandRegistry:** `0x9A587a9a4b990bb14Cd00D6432487271f00c2A5c`
+- **Deployment Tx Hash:** `0x4af4bce5a3349416bd697a7da55958d5a87b17be2494d00fba4cb6e6136c540c`
+- **Block Number:** `#5786246`
+- **Block Timestamp:** `2026-09-28T16:46:37.000Z`
+- **Gas Used:** `1846678`
+- **Deployer:** `0xB436E9CC1311948875220bF63a2AF6dde3e86D92`
+<!-- END_RELIEF_FUND -->
+
+---
+
+## 2. On-Chain Invariant Proofs & Anti-Fraud Architecture
+
+- [x] **Zero PII Leakage:** Only SHA-256 hashes (`ownerHash`, `evidenceHash`) stored on MST Testnet.
+- [x] **Trust-Weighted Consensus:** Automatic threshold upgrade to `Verified` upon reaching **Score ≥ 5** (Neighbor = +1, Leader = +3, NGO = +3).
+- [x] **Dispute-Specific State Freeze:** Disputing a previously-Verified claim freezes all relief payouts against it. *(proven on MST Testnet and locally by Test 29)*
+- [x] **Dual-Officer Relief Governance:** Escrowed payouts require two distinct authorized government officers to concur on recipient and amount before native MST is released.
+- [x] **Permissionless Release:** `release(claimId, reliefId)` has no `onlyOfficer` modifier. Once two officers have committed matching approvals and the claim is still `Verified`, any caller can execute the release transaction.
+
+---
+
+## 3. Confirmed Transaction Hashes (Phase 5 Live Testnet Happy Path)
+
+All transactions below were executed and confirmed against the live **MST Blockchain Testnet** across 3 distinct real-world citizen land parcels:
+
+### Happy Path Run 1: Parcel #1 — Ramesh Gowda (Catastrophic Level 4 Flood, 2.0 Acres)
 - **Parcel Details:** 2.0 Acres, Pucca Homestead & Farmland, Basavanagudi
 - **Beneficiary Address:** `0x70997970C51812dc3A010C7d01b50e0d17dc79C8`
 - **Claim ID:** `#7668`
@@ -32,7 +77,7 @@ All transactions below were executed and confirmed against the live **MST Blockc
 
 ---
 
-### Happy Path Run 2: Parcel #2 — Smt. Lakshmi Bai (Severe Level 3 Flood)
+### Happy Path Run 2: Parcel #2 — Smt. Lakshmi Bai (Severe Level 3 Flood, 1.8 Acres)
 - **Parcel Details:** 1.8 Acres, Mixed Agriculture & Residential, Basavanagudi
 - **Beneficiary Address:** `0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC`
 - **Claim ID:** `#7669`
@@ -51,7 +96,7 @@ All transactions below were executed and confirmed against the live **MST Blockc
 
 ---
 
-### Happy Path Run 3: Parcel #3 — Sri Vijayendra Rao (Moderate Level 2 Flood)
+### Happy Path Run 3: Parcel #3 — Sri Vijayendra Rao (Moderate Level 2 Flood, 2.5 Acres)
 - **Parcel Details:** 2.5 Acres, Kutcha Farmstead & Storage, Basavanagudi
 - **Beneficiary Address:** `0x90F79bf6EB2c4f870365E785982E1f101E93b906`
 - **Claim ID:** `#7670`
@@ -70,29 +115,28 @@ All transactions below were executed and confirmed against the live **MST Blockc
 
 ---
 
-## 2. Phase 5 & Phase 7 Full Verification Matrix (PASS/FAIL)
+## 4. Phase 5 & Phase 7 Full Verification Matrix (PASS/FAIL)
 
-| # | Requirement | Scenario / Verification | Expected Result | Actual Result | Status |
-|---|---|---|---|---|:---:|
-| **P5-1** | Happy Path Execution | 3 complete end-to-end runs across distinct parcels | Steps 1..8 pass, valid testnet txHashes | 3/3 runs passed, tx confirmed | **PASS** |
-| **P5-2** | Fraud Path 1 | `release-payout` on a `Disputed` claim | Revert with 400, dispute freeze, status unchanged | HTTP 400 (`Disputed`), on-chain status stays `Disputed`, payout `None` | **PASS** |
+| Test ID | Category | Requirement / Scenario | Expected Result | Actual Result | Status |
+|:---:|---|---|---|---|:---:|
+| **P5-1** | Happy Path | 3x End-to-end runs across distinct land parcels | Steps 1..8 pass, testnet tx confirmed | 3/3 runs passed, all tx verified on-chain | **PASS** |
+| **P5-2** | Fraud Path 1 | `release-payout` on a `Disputed` claim | Revert with 400, claim/payout status unchanged | HTTP 400 (`Disputed`), on-chain status stays `Disputed`, payout `None` | **PASS** |
 | **P5-3** | Fraud Path 2 | `release-payout` called twice on same claim | Revert with 400, no duplicate release tx | HTTP 400 (`already been paid`), txHash unchanged, double-spend prevented | **PASS** |
 | **P5-4** | Fraud Path 3 | Dual-officer approval mismatch (different amount / beneficiary) | Reject mismatch with 400, must NOT count as matching approval, stays `Assessed` | HTTP 400 (`Approval mismatch`), approvals count stays 1, status remains `Assessed` | **PASS** |
-| **P5-5** | Fraud Path 4 | Damage assessment over `relief.maxPerClaim` | Amount accurately clamped at `maxPerClaim`, no silent revert | Capped strictly at `3000000000000000000` wei, status `Assessed` | **PASS** |
+| **P5-5** | Fraud Path 4 | Damage assessment over `relief.maxPerClaim` | Amount clamped at `maxPerClaim`, no silent revert | Capped strictly at `3000000000000000000` wei, status `Assessed` | **PASS** |
 | **P5-6** | Fraud Path 5 | Non-assessor wallet calling `/assess` | Fails with readable error | HTTP 403 (`Unauthorized: Wallet is not an accredited field assessor`) | **PASS** |
 | **P5-7** | Fraud Path 6 | Bad input to any endpoint | HTTP 400 with `{ "error": "..." }` | 7/7 malformed endpoint inputs returned HTTP 400 with formatted error | **PASS** |
 | **P5-8** | Fraud Path 7 | Unknown `claimId` | HTTP 404 with `{ "error": "..." }` | 9/9 routes querying missing ID returned HTTP 404 with formatted error | **PASS** |
 | **P5-9** | Fraud Path 8 | RPC timeout / network delay | Readable error, server process does NOT crash | Caught gracefully, fallback handled, server stays online (`/health` 200) | **PASS** |
-| **P7-1** | Security & Secrets Audit | Scan git repository for committed secrets | Zero private keys, zero Atlas URIs | Grep confirmed: only placeholders in documentation, `.env` gitignored | **PASS** |
-| **P7-2** | Clean Clone Verification | Fresh clone into clean directory, run README setup | Zero manual fixes needed | `npm install` (8s) + `.env` copy + `npm test` passed 100% out of the box | **PASS** |
-| **P7-3** | Zero-Touch Policy | Inspect `chain.js` and `routes/chainRoutes.js` | Files untouched by Person B | Both files untouched and absent from Person B commits | **PASS** |
-| **P7-4** | Ground Truth On-Chain Reads | Read back on-chain state after every test | True testnet ground truth | On-chain claim and payout status verified via provider & store queries | **PASS** |
+| **P7-1** | Security Audit | Scan repo for accidentally committed keys/secrets | Zero private keys, zero Atlas URIs | Grep confirmed: only placeholders in docs, `.env` gitignored | **PASS** |
+| **P7-2** | Clean Clone | Fresh clone into clean directory, run README setup | Zero manual fixes needed | `npm install` (8s) + `.env` copy + `npm test` passed 100% out of the box | **PASS** |
+| **P7-3** | Zero-Touch Policy | Verify `chain.js` and `routes/chainRoutes.js` | Files untouched by Person B | Both files untouched and absent from Person B commits | **PASS** |
+| **P7-4** | State Read Back | Read back on-chain state after every test | Real testnet ground truth | On-chain claim and payout status verified via provider & store queries | **PASS** |
 
 ---
 
-## 3. Freeze Confirmation Summary
+## 5. Freeze Confirmation Summary
 
 - **Total Unit & Engine Tests:** 28 / 28 Passed (100%)
 - **Total Integration & Fraud Tests:** 16 / 16 Passed (100%)
-- **Codebase Cleanliness:** Working tree clean, zero uncommitted changes, `.gitignore` active
 - **Deployment Status:** **FREEZE READY**
