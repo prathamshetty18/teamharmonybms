@@ -18,6 +18,9 @@ const createValuationRoutes = require('./routes/valuationRoutes');
 const createDisputesRoutes = require('./routes/disputesRoutes');
 const createDisasterRoutes = require('./routes/disasterRoutes');
 const createReliefExpandedRoutes = require('./routes/reliefExpandedRoutes');
+const reportRoutes = require('./routes/reportRoutes');
+const qrRoutes = require('./routes/qrRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -108,6 +111,16 @@ app.use('/api', disasterRouter);
 const reliefExpandedRouter = createReliefExpandedRoutes();
 app.use('/', reliefExpandedRouter);
 app.use('/api', reliefExpandedRouter);
+
+// Mount Phase F — Reports, QR, Notifications
+app.use('/reports', reportRoutes);
+app.use('/api/reports', reportRoutes);
+
+app.use('/qr', qrRoutes);
+app.use('/api/qr', qrRoutes);
+
+app.use('/notifications', notificationRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Mount claims and relief routes
 app.use('/', createClaimsRoutes(upload));

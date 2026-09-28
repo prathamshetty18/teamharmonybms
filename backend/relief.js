@@ -280,9 +280,42 @@ async function getVerificationCertificate(claimId) {
     (claim.evidenceHash === recomputedEvidenceHash || claim.evidenceHash.startsWith('0x'))
   );
 
+  // Phase F status resolution: VALID, INVALID, REVOKED, UNDER REVIEW
+  let scanStatus = 'UNDER REVIEW';
+  const normStatus = String(claim.workflowStatus || claim.status || '').toUpperCase();
+
+  let hasDispute = claim.status === 'Disputed' || normStatus === 'DISPUTED';
+  if (!hasDispute && store.disputes && typeof store.disputes.getAll === 'function') {
+    try {
+      const allDisputes = await store.disputes.getAll();
+      hasDispute = (allDisputes || []).some(
+        d => (String(d.claimId) === String(claim.claimId) || String(d.landId) === String(claim.claimId)) &&
+             !['RESOLVED', 'CLOSED', 'DISMISSED'].includes(String(d.status).toUpperCase())
+      );
+    } catch (e) {}
+  }
+
+  if (!isEvidenceValid) {
+    scanStatus = 'INVALID';
+  } else if (normStatus === 'REJECTED' || normStatus === 'REVOKED') {
+    scanStatus = 'REVOKED';
+  } else if (hasDispute) {
+    scanStatus = 'UNDER REVIEW';
+  } else if (normStatus === 'APPROVED' || normStatus === 'VERIFIED') {
+    scanStatus = 'VALID';
+  } else {
+    scanStatus = 'UNDER REVIEW';
+  }
+
   return {
     claimId: String(claim.claimId),
+    landId: String(claim.claimId),
     status: claim.status,
+    workflowStatus: claim.workflowStatus || (claim.status === 'Verified' ? 'APPROVED' : 'SUBMITTED'),
+    scanStatus,
+    qrStatus: scanStatus,
+    verificationId: claim.evidenceHash,
+    hasDispute,
     score: claim.score || 0,
     ownerHash: claim.ownerHash,
     evidenceHash: claim.evidenceHash,
@@ -297,8 +330,12 @@ async function getVerificationCertificate(claimId) {
     payoutAmount: payout ? payout.amount : '0',
     payoutTxHash: payout ? payout.txHash : null,
     reliefId: payout ? payout.reliefId : null,
-    verified: claim.status === 'Verified',
-    disputed: claim.status === 'Disputed',
+    verified: claim.status === 'Verified' || normStatus === 'APPROVED',
+    disputed: hasDispute,
+    qrPayload: {
+      landId: String(claim.claimId),
+      verificationId: claim.evidenceHash
+    },
     qrTargetUrl: `/verify/${claim.claimId}`,
     verifiedAt: new Date().toISOString()
   };

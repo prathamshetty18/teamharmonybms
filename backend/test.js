@@ -367,6 +367,7 @@ async function runTests() {
     console.log('\n========================================');
     console.log('ALL TESTS PASSED SUCCESSFULLY! (14/14 Endpoints + Stores + Validators)');
     console.log('========================================');
+    process.exit(0);
   } finally {
     server.close();
   }

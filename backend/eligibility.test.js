@@ -258,3 +258,4 @@ console.log(`   ✓ 100 claims stress: sum(scaled) ${sumStressScaled} <= budget 
 console.log('\n======================================================');
 console.log('ALL ELIGIBILITY & BUDGET TESTS PASSED SUCCESSFULLY! (100%)');
 console.log('======================================================\n');
+process.exit(0);

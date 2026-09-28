@@ -571,6 +571,81 @@ const initialAuditLogs = [
   }
 ];
 
+const initialNotifications = [
+  {
+    id: 'notif_seed_101',
+    userId: 'usr_farmer_01',
+    role: 'Farmer',
+    landId: '1',
+    type: 'CLAIM_SUBMITTED',
+    title: 'Land Parcel 1 Submitted',
+    message: 'Your land parcel application for Sy. No. 142/3A has been successfully submitted.',
+    prevStatus: 'DRAFT',
+    newStatus: 'SUBMITTED',
+    read: true,
+    channel: 'IN_APP',
+    createdAt: '2026-09-28T08:30:00.000Z',
+    readAt: '2026-09-28T08:35:00.000Z'
+  },
+  {
+    id: 'notif_seed_102',
+    userId: 'usr_farmer_01',
+    role: 'Farmer',
+    landId: '1',
+    type: 'DOCUMENT_VERIFIED',
+    title: 'Documents Verified',
+    message: 'Title deed 4412/1984 verified with Sub-Registrar archives for Parcel 1.',
+    prevStatus: 'SUBMITTED',
+    newStatus: 'DOCUMENT_VERIFICATION',
+    read: true,
+    channel: 'IN_APP',
+    createdAt: '2026-09-28T09:00:00.000Z',
+    readAt: '2026-09-28T09:05:00.000Z'
+  },
+  {
+    id: 'notif_seed_103',
+    userId: 'usr_farmer_01',
+    role: 'Farmer',
+    landId: '1',
+    type: 'STATUS_CHANGE',
+    title: 'Parcel #1 Approved by Government',
+    message: 'Government Officer approved Parcel #1 (Sy. No. 142/3A) with final classification Agricultural. On-chain registration confirmed.',
+    prevStatus: 'GOVERNMENT_REVIEW',
+    newStatus: 'APPROVED',
+    read: false,
+    channel: 'IN_APP',
+    createdAt: '2026-09-28T12:00:00.000Z'
+  },
+  {
+    id: 'notif_seed_201',
+    userId: 'usr_gvo_01',
+    role: 'Ground Verification Officer',
+    landId: '2',
+    type: 'STATUS_CHANGE',
+    title: 'Ground Inspection Pending for Parcel #2',
+    message: 'Parcel #2 (Sy. No. 142/4, Lakshmi Bai) has moved to Ground Verification stage.',
+    prevStatus: 'DOCUMENT_VERIFICATION',
+    newStatus: 'GROUND_VERIFICATION',
+    read: false,
+    channel: 'IN_APP',
+    createdAt: '2026-09-28T12:30:00.000Z'
+  },
+  {
+    id: 'notif_seed_301',
+    userId: 'usr_gov_01',
+    role: 'Government Officer',
+    landId: '3',
+    type: 'DISPUTE_FLAGGED',
+    title: 'Dispute Flagged on Parcel #3',
+    message: 'Geospatial boundary conflict detected for Parcel #3 (42% overlap with Parcel #1). Dispute raised.',
+    prevStatus: 'SUBMITTED',
+    newStatus: 'DISPUTED',
+    read: false,
+    channel: 'IN_APP',
+    createdAt: '2026-09-28T13:30:00.000Z'
+  }
+];
+
 const initialDisasters = [
   {
     id: 'disaster_flood_blr_2026',
@@ -723,7 +798,8 @@ const memoryStore = {
   valuations: new Map(),
   disputes: new Map(),
   disasters: new Map(initialDisasters.map(d => [String(d.id), { ...d }])),
-  disasterAssessments: new Map(initialDisasterAssessments.map(a => [String(a.id), { ...a }]))
+  disasterAssessments: new Map(initialDisasterAssessments.map(a => [String(a.id), { ...a }])),
+  notifications: new Map(initialNotifications.map(n => [String(n.id), { ...n }]))
 };
 
 function getMemStore(collectionName) {
@@ -832,6 +908,24 @@ function createStore(collectionName, idField) {
       }
 
       return updated;
+    },
+
+    async delete(id) {
+      const strId = String(id);
+      const mem = getMemStore(collectionName);
+      const existed = mem.has(strId) || Boolean(await this.getById(strId));
+      mem.delete(strId);
+
+      const col = getCollection(collectionName);
+      if (isDbConnected() && col) {
+        try {
+          await col.deleteOne({ [idField]: strId });
+        } catch (e) {
+          console.warn(`[Store] Error deleting from ${collectionName} in MongoDB:`, e.message);
+        }
+      }
+
+      return existed;
     }
   };
 }
@@ -846,6 +940,56 @@ const valuations = createStore('valuations', 'valuationId');
 const disputes = createStore('disputes', 'disputeId');
 const disasters = createStore('disasters', 'id');
 const disasterAssessments = createStore('disasterAssessments', 'id');
+const notifications = createStore('notifications', 'id');
+
+// Custom lookup extensions for notifications
+notifications.getByLandId = async function(landId) {
+  const strId = String(landId);
+  const all = await this.getAll();
+  return all
+    .filter(n => String(n.landId) === strId || String(n.claimId) === strId)
+    .sort((a, b) => new Date(b.createdAt || b.timestamp || 0) - new Date(a.createdAt || a.timestamp || 0));
+};
+
+notifications.getByUserId = async function(userId) {
+  const strId = String(userId);
+  const all = await this.getAll();
+  return all
+    .filter(n => String(n.userId) === strId)
+    .sort((a, b) => new Date(b.createdAt || b.timestamp || 0) - new Date(a.createdAt || a.timestamp || 0));
+};
+
+notifications.getByRole = async function(role) {
+  const strRole = String(role).trim().toLowerCase();
+  const all = await this.getAll();
+  return all
+    .filter(n => !n.role || n.role.toUpperCase() === 'ALL' || String(n.role).trim().toLowerCase() === strRole)
+    .sort((a, b) => new Date(b.createdAt || b.timestamp || 0) - new Date(a.createdAt || a.timestamp || 0));
+};
+
+notifications.markRead = async function(id) {
+  const strId = String(id);
+  const found = await this.getById(strId);
+  if (!found) return null;
+  return this.update(strId, { read: true, readAt: new Date().toISOString() });
+};
+
+notifications.markAllRead = async function(filter = {}) {
+  const all = await this.getAll();
+  let updatedCount = 0;
+  for (const n of all) {
+    if (n.read) continue;
+    let match = true;
+    if (filter.landId && String(n.landId) !== String(filter.landId)) match = false;
+    if (filter.role && n.role && n.role !== 'ALL' && n.role.toLowerCase() !== filter.role.toLowerCase()) match = false;
+    if (filter.userId && String(n.userId) !== String(filter.userId)) match = false;
+    if (match) {
+      await this.update(n.id, { read: true, readAt: new Date().toISOString() });
+      updatedCount++;
+    }
+  }
+  return updatedCount;
+};
 
 // Custom lookup extensions for disasters
 const origDisasterGetById = disasters.getById.bind(disasters);
@@ -906,7 +1050,44 @@ auditLogs.getByLandId = async function(landId) {
 };
 
 /**
- * Appends a new immutable audit record to the Audit Logs collection
+ * Records a stub notification row in the notifications collection
+ */
+async function recordNotification({
+  userId = null,
+  role = 'ALL',
+  landId = null,
+  type = 'STATUS_CHANGE',
+  title = null,
+  message = null,
+  prevStatus = null,
+  newStatus = null,
+  channel = 'IN_APP',
+  metadata = {}
+} = {}) {
+  const now = new Date().toISOString();
+  const id = `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const record = {
+    id,
+    userId,
+    role,
+    landId: landId ? String(landId) : null,
+    claimId: landId ? String(landId) : null,
+    type: type || 'STATUS_CHANGE',
+    title: title || (landId ? `Land Parcel #${landId} Update` : 'System Notification'),
+    message: message || `Status changed${prevStatus ? ' from ' + prevStatus : ''}${newStatus ? ' to ' + newStatus : ''}.`,
+    prevStatus: prevStatus || null,
+    newStatus: newStatus || null,
+    read: false,
+    channel,
+    metadata,
+    createdAt: now
+  };
+  return notifications.save(record);
+}
+
+/**
+ * Appends a new immutable audit record to the Audit Logs collection,
+ * and automatically triggers a notification row on status changes (Phase F).
  */
 async function recordAuditLog({ who, what, landId, prevValue, newValue, remarks, metadata = {} }) {
   const now = new Date().toISOString();
@@ -923,7 +1104,26 @@ async function recordAuditLog({ who, what, landId, prevValue, newValue, remarks,
     remarks: remarks || '',
     metadata
   };
-  return auditLogs.save(record);
+  const saved = await auditLogs.save(record);
+
+  // Phase F: status change triggers a notification row
+  try {
+    const actionLabel = (what || 'STATUS_CHANGE').replace(/_/g, ' ');
+    await recordNotification({
+      landId,
+      role: 'ALL',
+      type: what || 'STATUS_CHANGE',
+      title: `Land #${landId}: ${actionLabel}`,
+      message: `Land Parcel #${landId} transitioned from ${prevValue || 'N/A'} to ${newValue || 'N/A'}.${remarks ? ' ' + remarks : ''}`,
+      prevStatus: prevValue,
+      newStatus: newValue,
+      metadata: { auditLogId: id, who, ...metadata }
+    });
+  } catch (err) {
+    console.warn('[Notifications] Failed to auto-trigger notification row:', err.message);
+  }
+
+  return saved;
 }
 
 // -------------------------------------------------------------
@@ -1105,6 +1305,14 @@ module.exports = {
   disputes,
   disasters,
   disasterAssessments,
+  notifications,
+  recordNotification,
+  getAllNotifications: () => notifications.getAll(),
+  getNotificationById: (id) => notifications.getById(id),
+  getNotificationsByLandId: (landId) => notifications.getByLandId(landId),
+  getNotificationsByRole: (role) => notifications.getByRole(role),
+  saveNotification: (n) => notifications.save(n),
+  updateNotification: (id, updates) => notifications.update(id, updates),
   getAll,
   getById,
   save,

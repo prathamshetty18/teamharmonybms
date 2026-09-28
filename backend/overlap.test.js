@@ -181,6 +181,7 @@ runIntegrationTest().then(() => {
   console.log('\n======================================================');
   console.log('ALL PHASE 3 OVERLAP & AUTO-DISPUTE TESTS PASSED! (100%)');
   console.log('======================================================\n');
+  process.exit(0);
 }).catch(err => {
   console.error('\n❌ PHASE 3 TEST FAILED:', err);
   process.exit(1);
