@@ -5,7 +5,7 @@
 
 const VALID_CLAIM_STATUSES = ['Pending', 'Verified', 'Disputed'];
 const VALID_PAYOUT_STATUSES = ['None', 'Assessed', 'Approved', 'Paid'];
-const VALID_ATTESTER_ROLES = ['Neighbor', 'Village Leader', 'Accredited NGO'];
+const VALID_ATTESTER_ROLES = ['Neighbor', 'Village Leader', 'Accredited NGO', 'NGO', 'NGO/Community Verifier'];
 
 /**
  * Checks if a value is a valid wei string (non-negative integer in string form).

@@ -151,6 +151,7 @@ async function runPhase2Tests() {
     console.log('\n======================================================');
     console.log('ALL PHASE 2 CORE LAND FLOW TESTS PASSED! (100%)');
     console.log('======================================================\n');
+    process.exit(0);
   } finally {
     server.close();
   }

@@ -1,7 +1,18 @@
+const path = require('path');
+const fs = require('fs');
+
+// Ensure module resolution falls back to backend/node_modules if running without root node_modules
+const backendNodeModules = path.join(__dirname, '..', 'backend', 'node_modules');
+if (fs.existsSync(backendNodeModules) && !module.paths.includes(backendNodeModules)) {
+  module.paths.unshift(backendNodeModules);
+}
+
 const express = require('express');
 const router = express.Router();
 const { ethers } = require('ethers');
 const chain = require('../chain.js');
+const { createReliefRecord } = require('../backend/relief');
+const store = require('../backend/store');
 
 function asyncRoute(handler) {
   return async (req, res) => {
@@ -16,33 +27,77 @@ function asyncRoute(handler) {
 
 /**
  * POST /reliefs
- * Body: { name, zonePolygon, ratePerAcre, maxPerClaimWei, budgetWei, expiresAt }
- * Calls B helpers for zoneHash and store (stubbed with TODO), then chain.createRelief
- * Returns { reliefId, txHash }
+ * Body: { name, zonePolygon, ratePerAcre, maxPerClaimWei, budgetWei, expiresAt, disasterType }
+ * Calls Person B's createReliefRecord for zoneHash and Atlas persistence,
+ * then calls chain.createRelief(zoneHash, maxPerClaimWei, budgetWei, expiresAt)
+ * Returns merged { ...savedRecord, reliefId, txHash }
  */
 router.post('/reliefs', asyncRoute(async (req, res) => {
-  const { name, zonePolygon, ratePerAcre, maxPerClaimWei, budgetWei, expiresAt } = req.body || {};
+  const {
+    name,
+    description,
+    zonePolygon,
+    zone,
+    ratePerAcre,
+    maxPerClaimWei,
+    maxPerClaim,
+    budgetWei,
+    budget,
+    disasterType,
+    expiresAt,
+    reliefId
+  } = req.body || {};
 
-  if (!maxPerClaimWei || !budgetWei) {
+  const effectiveMaxPerClaim = maxPerClaimWei || maxPerClaim;
+  const effectiveBudget = budgetWei || budget;
+  const effectiveZone = zonePolygon || zone;
+
+  if (!effectiveMaxPerClaim || !effectiveBudget) {
     return res.status(400).json({ error: "Missing required fields: 'maxPerClaimWei' and 'budgetWei'" });
   }
 
-  // TODO (Person B): Integrate Person B's store.js and Turf.js helpers for zonePolygon hashing and MongoDB saving.
-  let zoneHash;
-  if (zonePolygon) {
-    const jsonStr = typeof zonePolygon === 'string' ? zonePolygon : JSON.stringify(zonePolygon);
-    zoneHash = ethers.keccak256(ethers.toUtf8Bytes(jsonStr));
-  } else if (name) {
-    zoneHash = ethers.keccak256(ethers.toUtf8Bytes(name));
-  } else {
-    zoneHash = '0x' + '1'.repeat(64);
+  // Call Person B's existing relief.js function (createReliefRecord)
+  // Computes zoneHash and persists the record to MongoDB Atlas
+  const savedRecord = await createReliefRecord({
+    name,
+    description,
+    zone: effectiveZone,
+    ratePerAcre: ratePerAcre ? String(ratePerAcre) : undefined,
+    maxPerClaim: String(effectiveMaxPerClaim),
+    budget: String(effectiveBudget),
+    disasterType,
+    reliefId
+  });
+
+  const reliefRes = await chain.createRelief(
+    savedRecord.zoneHash,
+    effectiveMaxPerClaim,
+    effectiveBudget,
+    expiresAt || 0
+  );
+
+  // Update Atlas record with on-chain reliefId and txHash if available
+  if (reliefRes) {
+    if (reliefRes.txHash) {
+      await store.update('reliefs', savedRecord.reliefId, {
+        txHash: reliefRes.txHash,
+        onChainReliefId: reliefRes.reliefId
+      });
+    }
+    if (reliefRes.reliefId && reliefRes.reliefId !== savedRecord.reliefId) {
+      await store.save('reliefs', {
+        ...savedRecord,
+        reliefId: reliefRes.reliefId,
+        offChainReliefId: savedRecord.reliefId,
+        txHash: reliefRes.txHash
+      });
+    }
   }
 
-  const reliefRes = await chain.createRelief(zoneHash, maxPerClaimWei, budgetWei, expiresAt || 0);
-
   return res.status(200).json({
-    reliefId: reliefRes.reliefId,
-    txHash: reliefRes.txHash
+    ...savedRecord,
+    reliefId: (reliefRes && reliefRes.reliefId) ? reliefRes.reliefId : savedRecord.reliefId,
+    txHash: (reliefRes && reliefRes.txHash) ? reliefRes.txHash : null
   });
 }));
 

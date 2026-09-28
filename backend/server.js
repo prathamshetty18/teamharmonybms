@@ -8,6 +8,19 @@ const multer = require('multer');
 
 const { connectDB } = require('./db');
 const createClaimsRoutes = require('./routes/claimsRoutes');
+const authRoutes = require('./routes/authRoutes');
+const createDocumentRoutes = require('./routes/documentRoutes');
+const createVerificationRoutes = require('./routes/verificationRoutes');
+const createDashboardRoutes = require('./routes/dashboardRoutes');
+const createLandClassificationRoutes = require('./routes/landClassificationRoutes');
+const createGisRoutes = require('./routes/gisRoutes');
+const createValuationRoutes = require('./routes/valuationRoutes');
+const createDisputesRoutes = require('./routes/disputesRoutes');
+const createDisasterRoutes = require('./routes/disasterRoutes');
+const createReliefExpandedRoutes = require('./routes/reliefExpandedRoutes');
+const reportRoutes = require('./routes/reportRoutes');
+const qrRoutes = require('./routes/qrRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -54,6 +67,60 @@ app.get('/', (req, res) => {
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
 });
+
+// Mount authentication routes
+app.use('/auth', authRoutes);
+app.use('/api/auth', authRoutes);
+
+// Mount document routes
+app.use('/documents', createDocumentRoutes(upload));
+app.use('/api/documents', createDocumentRoutes(upload));
+
+// Mount Phase C verification and audit routes
+const verificationRouter = createVerificationRoutes(upload);
+app.use('/', verificationRouter);
+app.use('/api', verificationRouter);
+
+// Mount Phase D dashboard, stats, and search routes (BEFORE claims to avoid :id wildcard collision)
+const dashboardRouter = createDashboardRoutes();
+app.use('/', dashboardRouter);
+app.use('/api', dashboardRouter);
+
+// Mount Phase D — Land Classification, GIS, Valuation, Disputes
+const landClassificationRouter = createLandClassificationRoutes();
+app.use('/', landClassificationRouter);
+app.use('/api', landClassificationRouter);
+
+const gisRouter = createGisRoutes();
+app.use('/', gisRouter);
+app.use('/api', gisRouter);
+
+const valuationRouter = createValuationRoutes();
+app.use('/', valuationRouter);
+app.use('/api', valuationRouter);
+
+const disputesRouter = createDisputesRoutes();
+app.use('/', disputesRouter);
+app.use('/api', disputesRouter);
+
+// Mount Phase E — Disasters & Expanded Relief
+const disasterRouter = createDisasterRoutes(upload);
+app.use('/', disasterRouter);
+app.use('/api', disasterRouter);
+
+const reliefExpandedRouter = createReliefExpandedRoutes();
+app.use('/', reliefExpandedRouter);
+app.use('/api', reliefExpandedRouter);
+
+// Mount Phase F — Reports, QR, Notifications
+app.use('/reports', reportRoutes);
+app.use('/api/reports', reportRoutes);
+
+app.use('/qr', qrRoutes);
+app.use('/api/qr', qrRoutes);
+
+app.use('/notifications', notificationRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Mount claims and relief routes
 app.use('/', createClaimsRoutes(upload));

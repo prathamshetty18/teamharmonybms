@@ -167,9 +167,16 @@ async function getEligibleClaimsForRelief(reliefIdOrDoc) {
       amt = computeAmount(claimForCompute, relief, lvl);
     }
 
+    const calculatedAmt = amt;
+    const sanctionedAmt = payout ? (payout.officiallySanctionedAmount || payout.sanctionedAmount || null) : null;
+
     processedClaims.push({
       claimId: String(c.claimId),
       amount: amt,
+      calculatedAmount: calculatedAmt,
+      estimatedAmount: calculatedAmt,
+      officiallySanctionedAmount: sanctionedAmt,
+      sanctionedAmount: sanctionedAmt,
       scaledAmount: amt,
       damageLevel: lvl,
       payoutStatus: status,
@@ -205,6 +212,7 @@ async function getEligibleClaimsForRelief(reliefIdOrDoc) {
  * Retrieves the payout record for a claimId.
  * Status is guaranteed to be one of: None | Assessed | Approved | Paid
  * Amount is in wei string.
+ * Stores both Calculated/Estimated Amount and Officially Sanctioned Amount.
  * 
  * @param {string} claimId - Claim ID
  * @returns {Promise<object>} Payout record
@@ -218,6 +226,10 @@ async function getPayoutRecord(claimId) {
       reliefId: null,
       status: 'None',
       amount: '0',
+      calculatedAmount: '0',
+      estimatedAmount: '0',
+      officiallySanctionedAmount: null,
+      sanctionedAmount: null,
       damageLevel: null,
       approvals: [],
       txHash: null,
@@ -226,10 +238,17 @@ async function getPayoutRecord(claimId) {
     };
   }
 
+  const calculatedAmt = payout.calculatedAmount || payout.estimatedAmount || payout.amount || '0';
+  const sanctionedAmt = payout.officiallySanctionedAmount || payout.sanctionedAmount || null;
+
   return {
     ...payout,
     status: payout.status || 'None',
-    amount: payout.amount || '0'
+    amount: payout.amount || calculatedAmt,
+    calculatedAmount: calculatedAmt,
+    estimatedAmount: calculatedAmt,
+    officiallySanctionedAmount: sanctionedAmt,
+    sanctionedAmount: sanctionedAmt
   };
 }
 
@@ -261,9 +280,42 @@ async function getVerificationCertificate(claimId) {
     (claim.evidenceHash === recomputedEvidenceHash || claim.evidenceHash.startsWith('0x'))
   );
 
+  // Phase F status resolution: VALID, INVALID, REVOKED, UNDER REVIEW
+  let scanStatus = 'UNDER REVIEW';
+  const normStatus = String(claim.workflowStatus || claim.status || '').toUpperCase();
+
+  let hasDispute = claim.status === 'Disputed' || normStatus === 'DISPUTED';
+  if (!hasDispute && store.disputes && typeof store.disputes.getAll === 'function') {
+    try {
+      const allDisputes = await store.disputes.getAll();
+      hasDispute = (allDisputes || []).some(
+        d => (String(d.claimId) === String(claim.claimId) || String(d.landId) === String(claim.claimId)) &&
+             !['RESOLVED', 'CLOSED', 'DISMISSED'].includes(String(d.status).toUpperCase())
+      );
+    } catch (e) {}
+  }
+
+  if (!isEvidenceValid) {
+    scanStatus = 'INVALID';
+  } else if (normStatus === 'REJECTED' || normStatus === 'REVOKED') {
+    scanStatus = 'REVOKED';
+  } else if (hasDispute) {
+    scanStatus = 'UNDER REVIEW';
+  } else if (normStatus === 'APPROVED' || normStatus === 'VERIFIED') {
+    scanStatus = 'VALID';
+  } else {
+    scanStatus = 'UNDER REVIEW';
+  }
+
   return {
     claimId: String(claim.claimId),
+    landId: String(claim.claimId),
     status: claim.status,
+    workflowStatus: claim.workflowStatus || (claim.status === 'Verified' ? 'APPROVED' : 'SUBMITTED'),
+    scanStatus,
+    qrStatus: scanStatus,
+    verificationId: claim.evidenceHash,
+    hasDispute,
     score: claim.score || 0,
     ownerHash: claim.ownerHash,
     evidenceHash: claim.evidenceHash,
@@ -278,8 +330,12 @@ async function getVerificationCertificate(claimId) {
     payoutAmount: payout ? payout.amount : '0',
     payoutTxHash: payout ? payout.txHash : null,
     reliefId: payout ? payout.reliefId : null,
-    verified: claim.status === 'Verified',
-    disputed: claim.status === 'Disputed',
+    verified: claim.status === 'Verified' || normStatus === 'APPROVED',
+    disputed: hasDispute,
+    qrPayload: {
+      landId: String(claim.claimId),
+      verificationId: claim.evidenceHash
+    },
     qrTargetUrl: `/verify/${claim.claimId}`,
     verifiedAt: new Date().toISOString()
   };

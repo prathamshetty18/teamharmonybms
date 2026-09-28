@@ -5,38 +5,376 @@ const turf = require('@turf/turf');
 /**
  * 1. Config: damage profiles (one standard, any disaster)
  * Each disaster = data, not code.
+ * Extended in Phase E to support land-type/area/damage%/disaster-type,
+ * state/UT norms, and applicable relief schemes (SDRF, NDRF, PMFBY, CMRF).
  */
-const PROFILES = {
-  flood: {
-    criteria: {
-      depth: { none: 0, low: 1, medium: 2, high: 3 },
-      structure: { none: 0, partial: 2, major: 4 },
-      duration: { short: 0, medium: 1, long: 2 },
-      type: { pucca: 0, kutcha: 1 },
-      contents: { none: 0, some: 1, all: 2 }
-    },
-    levels: [
-      { min: 0, level: 1 },
-      { min: 3, level: 2 },
-      { min: 6, level: 3 },
-      { min: 9, level: 4 }
-    ]
+const BASE_FLOOD_PROFILE = {
+  disasterType: 'flood',
+  criteria: {
+    depth: { none: 0, low: 1, medium: 2, high: 3 },
+    structure: { none: 0, partial: 2, major: 4 },
+    duration: { short: 0, medium: 1, long: 2 },
+    type: { pucca: 0, kutcha: 1 },
+    contents: { none: 0, some: 1, all: 2 }
   },
-  earthquake: {
-    criteria: {
-      cracks: { none: 0, hairline: 1, wide: 3 },
-      collapse: { none: 0, partial: 3, full: 5 },
-      habitable: { yes: 0, no: 2 },
-      type: { pucca: 0, kutcha: 1 }
+  levels: [
+    { min: 0, level: 1 },
+    { min: 3, level: 2 },
+    { min: 6, level: 3 },
+    { min: 9, level: 4 }
+  ],
+  damagePercentage: { 1: 25, 2: 50, 3: 75, 4: 100 },
+  ratesByLandType: {
+    Agricultural: '1000000000000000000',
+    Rainfed: '850000000000000000',
+    Irrigated: '1700000000000000000',
+    Perennial: '2250000000000000000',
+    Homestead: '2000000000000000000',
+    Commercial: '3500000000000000000'
+  },
+  schemes: ['SDRF', 'NDRF', 'PMFBY', 'CMRF']
+};
+
+const BASE_EARTHQUAKE_PROFILE = {
+  disasterType: 'earthquake',
+  criteria: {
+    cracks: { none: 0, hairline: 1, wide: 3 },
+    collapse: { none: 0, partial: 3, full: 5 },
+    habitable: { yes: 0, no: 2 },
+    type: { pucca: 0, kutcha: 1 }
+  },
+  levels: [
+    { min: 0, level: 1 },
+    { min: 2, level: 2 },
+    { min: 5, level: 3 },
+    { min: 8, level: 4 }
+  ],
+  damagePercentage: { 1: 25, 2: 50, 3: 75, 4: 100 },
+  ratesByLandType: {
+    Agricultural: '1200000000000000000',
+    Rainfed: '900000000000000000',
+    Irrigated: '1800000000000000000',
+    Homestead: '2500000000000000000',
+    Commercial: '4000000000000000000'
+  },
+  schemes: ['SDRF', 'NDRF', 'CMRF']
+};
+
+const BASE_CYCLONE_PROFILE = {
+  disasterType: 'cyclone',
+  criteria: {
+    wind: { low: 0, moderate: 1, severe: 2, extreme: 3 },
+    surge: { none: 0, minor: 1, major: 3 },
+    roof: { intact: 0, partial_loss: 2, blown_away: 4 },
+    crop_loss: { none: 0, partial: 1, complete: 2 }
+  },
+  levels: [
+    { min: 0, level: 1 },
+    { min: 3, level: 2 },
+    { min: 6, level: 3 },
+    { min: 9, level: 4 }
+  ],
+  damagePercentage: { 1: 25, 2: 50, 3: 75, 4: 100 },
+  ratesByLandType: {
+    Agricultural: '1250000000000000000',
+    Rainfed: '950000000000000000',
+    Irrigated: '1900000000000000000',
+    Homestead: '2200000000000000000',
+    Commercial: '3800000000000000000'
+  },
+  schemes: ['SDRF', 'NDRF', 'PMFBY']
+};
+
+const BASE_DROUGHT_PROFILE = {
+  disasterType: 'drought',
+  criteria: {
+    rainfall_deficit: { normal: 0, moderate: 1, severe: 2, extreme: 3 },
+    dry_spell_weeks: { short: 0, medium: 1, prolonged: 2 },
+    crop_wilted: { none: 0, partial: 2, total: 4 },
+    groundwater: { normal: 0, depleted: 1, critical: 2 }
+  },
+  levels: [
+    { min: 0, level: 1 },
+    { min: 3, level: 2 },
+    { min: 6, level: 3 },
+    { min: 8, level: 4 }
+  ],
+  damagePercentage: { 1: 25, 2: 50, 3: 75, 4: 100 },
+  ratesByLandType: {
+    Agricultural: '850000000000000000',
+    Rainfed: '850000000000000000',
+    Irrigated: '1700000000000000000',
+    Perennial: '2250000000000000000'
+  },
+  schemes: ['SDRF', 'PMFBY']
+};
+
+const BASE_LANDSLIDE_PROFILE = {
+  disasterType: 'landslide',
+  criteria: {
+    debris_coverage: { low: 0, partial: 2, total: 4 },
+    slope_instability: { low: 0, moderate: 1, high: 2 },
+    access_blocked: { no: 0, partial: 1, full: 2 },
+    structure: { intact: 0, cracked: 1, collapsed: 3 }
+  },
+  levels: [
+    { min: 0, level: 1 },
+    { min: 3, level: 2 },
+    { min: 5, level: 3 },
+    { min: 8, level: 4 }
+  ],
+  damagePercentage: { 1: 25, 2: 50, 3: 75, 4: 100 },
+  ratesByLandType: {
+    Agricultural: '1500000000000000000',
+    Homestead: '2800000000000000000',
+    Commercial: '4000000000000000000'
+  },
+  schemes: ['SDRF', 'NDRF', 'CMRF']
+};
+
+const SCHEMES = ['SDRF', 'NDRF', 'PMFBY', 'CMRF'];
+
+const SUPPORTED_STATES = [
+  'Karnataka',
+  'Kerala',
+  'Odisha',
+  'Maharashtra',
+  'Assam',
+  'Uttarakhand',
+  'Gujarat',
+  'Tamil Nadu',
+  'Default'
+];
+
+const PROFILES = {
+  flood: BASE_FLOOD_PROFILE,
+  earthquake: BASE_EARTHQUAKE_PROFILE,
+  cyclone: BASE_CYCLONE_PROFILE,
+  drought: BASE_DROUGHT_PROFILE,
+  landslide: BASE_LANDSLIDE_PROFILE,
+
+  // State/UT specific scheme norms
+  karnataka: {
+    sdrf: {
+      flood: {
+        ...BASE_FLOOD_PROFILE,
+        ratesByLandType: {
+          Agricultural: '1500000000000000000',
+          Rainfed: '850000000000000000',
+          Irrigated: '1700000000000000000',
+          Perennial: '2250000000000000000',
+          Homestead: '2500000000000000000',
+          Commercial: '3500000000000000000'
+        },
+        maxPerClaim: '5000000000000000000'
+      },
+      drought: {
+        ...BASE_DROUGHT_PROFILE,
+        ratesByLandType: {
+          Agricultural: '900000000000000000',
+          Rainfed: '850000000000000000',
+          Irrigated: '1700000000000000000'
+        },
+        maxPerClaim: '4000000000000000000'
+      }
     },
-    levels: [
-      { min: 0, level: 1 },
-      { min: 2, level: 2 },
-      { min: 5, level: 3 },
-      { min: 8, level: 4 }
-    ]
+    pmfby: {
+      flood: {
+        ...BASE_FLOOD_PROFILE,
+        ratesByLandType: {
+          Agricultural: '2000000000000000000',
+          Irrigated: '2500000000000000000'
+        },
+        maxPerClaim: '6000000000000000000'
+      },
+      drought: {
+        ...BASE_DROUGHT_PROFILE,
+        ratesByLandType: {
+          Agricultural: '1500000000000000000',
+          Irrigated: '2000000000000000000'
+        },
+        maxPerClaim: '5000000000000000000'
+      }
+    },
+    cmrf: {
+      flood: {
+        ...BASE_FLOOD_PROFILE,
+        maxPerClaim: '3000000000000000000'
+      }
+    }
+  },
+
+  kerala: {
+    sdrf: {
+      flood: {
+        ...BASE_FLOOD_PROFILE,
+        ratesByLandType: {
+          Agricultural: '1800000000000000000',
+          Homestead: '3000000000000000000'
+        }
+      },
+      landslide: {
+        ...BASE_LANDSLIDE_PROFILE,
+        ratesByLandType: {
+          Agricultural: '2000000000000000000',
+          Homestead: '3500000000000000000'
+        }
+      }
+    },
+    cmrf: {
+      flood: { ...BASE_FLOOD_PROFILE },
+      landslide: { ...BASE_LANDSLIDE_PROFILE }
+    }
+  },
+
+  odisha: {
+    sdrf: {
+      cyclone: {
+        ...BASE_CYCLONE_PROFILE,
+        ratesByLandType: {
+          Agricultural: '1600000000000000000',
+          Homestead: '2600000000000000000'
+        }
+      },
+      flood: { ...BASE_FLOOD_PROFILE }
+    },
+    ndrf: {
+      cyclone: {
+        ...BASE_CYCLONE_PROFILE,
+        ratesByLandType: {
+          Agricultural: '2000000000000000000',
+          Homestead: '3200000000000000000'
+        }
+      }
+    }
+  },
+
+  maharashtra: {
+    sdrf: {
+      drought: { ...BASE_DROUGHT_PROFILE },
+      flood: { ...BASE_FLOOD_PROFILE }
+    },
+    pmfby: {
+      drought: { ...BASE_DROUGHT_PROFILE }
+    }
+  },
+
+  assam: {
+    sdrf: {
+      flood: {
+        ...BASE_FLOOD_PROFILE,
+        ratesByLandType: {
+          Agricultural: '1400000000000000000',
+          Homestead: '2200000000000000000'
+        }
+      },
+      landslide: { ...BASE_LANDSLIDE_PROFILE }
+    }
+  },
+
+  uttarakhand: {
+    sdrf: {
+      earthquake: { ...BASE_EARTHQUAKE_PROFILE },
+      landslide: { ...BASE_LANDSLIDE_PROFILE }
+    },
+    ndrf: {
+      earthquake: { ...BASE_EARTHQUAKE_PROFILE }
+    }
+  },
+
+  default: {
+    sdrf: {
+      flood: BASE_FLOOD_PROFILE,
+      earthquake: BASE_EARTHQUAKE_PROFILE,
+      cyclone: BASE_CYCLONE_PROFILE,
+      drought: BASE_DROUGHT_PROFILE,
+      landslide: BASE_LANDSLIDE_PROFILE
+    },
+    ndrf: {
+      flood: BASE_FLOOD_PROFILE,
+      earthquake: BASE_EARTHQUAKE_PROFILE,
+      cyclone: BASE_CYCLONE_PROFILE
+    },
+    pmfby: {
+      flood: BASE_FLOOD_PROFILE,
+      drought: BASE_DROUGHT_PROFILE
+    },
+    cmrf: {
+      flood: BASE_FLOOD_PROFILE
+    }
   }
 };
+
+// Also support composite keys: 'karnataka:sdrf:flood'
+for (const state of Object.keys(PROFILES)) {
+  if (['flood', 'earthquake', 'cyclone', 'drought', 'landslide'].includes(state)) continue;
+  const stateObj = PROFILES[state];
+  if (stateObj && typeof stateObj === 'object') {
+    for (const scheme of Object.keys(stateObj)) {
+      const schemeObj = stateObj[scheme];
+      if (schemeObj && typeof schemeObj === 'object') {
+        for (const dtype of Object.keys(schemeObj)) {
+          PROFILES[`${state}:${scheme}:${dtype}`] = schemeObj[dtype];
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Resolves a disaster profile given optional state and scheme
+ */
+function resolveProfile(disasterType, { state, scheme } = {}) {
+  if (!disasterType || typeof disasterType !== 'string') {
+    return null;
+  }
+  const dtype = disasterType.toLowerCase();
+
+  if (state && scheme) {
+    const s = state.toLowerCase().replace(/\s+/g, '_');
+    const sch = scheme.toLowerCase();
+    const compositeKey = `${s}:${sch}:${dtype}`;
+    if (PROFILES[compositeKey]) return PROFILES[compositeKey];
+    if (PROFILES[s] && PROFILES[s][sch] && PROFILES[s][sch][dtype]) {
+      return PROFILES[s][sch][dtype];
+    }
+  }
+
+  if (state && !scheme) {
+    const s = state.toLowerCase().replace(/\s+/g, '_');
+    if (PROFILES[s] && PROFILES[s].sdrf && PROFILES[s].sdrf[dtype]) {
+      return PROFILES[s].sdrf[dtype];
+    }
+  }
+
+  if (scheme && !state) {
+    const sch = scheme.toLowerCase();
+    if (PROFILES.default && PROFILES.default[sch] && PROFILES.default[sch][dtype]) {
+      return PROFILES.default[sch][dtype];
+    }
+  }
+
+  return PROFILES[dtype] || null;
+}
+
+/**
+ * Returns a profile configuration object by parameters
+ */
+function getProfile({ state = 'default', scheme = 'sdrf', disasterType = 'flood' } = {}) {
+  return resolveProfile(disasterType, { state, scheme }) || PROFILES[disasterType.toLowerCase()] || null;
+}
+
+/**
+ * Lists all available disaster profiles, states, and schemes
+ */
+function listProfiles() {
+  return {
+    disasterTypes: ['flood', 'earthquake', 'cyclone', 'drought', 'landslide'],
+    schemes: SCHEMES,
+    states: SUPPORTED_STATES,
+    profiles: PROFILES
+  };
+}
 
 /**
  * Basis points multiplier for damage levels 1 to 4:
@@ -76,17 +414,26 @@ function safeIntersect(polyA, polyB) {
  * @param {object} answers - Key-value map of criteria answers
  * @returns {number} Damage level (1, 2, 3, or 4)
  */
-function damageLevel(disasterType, answers) {
-  if (!disasterType || typeof disasterType !== 'string') {
+function damageLevel(disasterType, answers, options = {}) {
+  if (!disasterType || (typeof disasterType !== 'string' && typeof disasterType !== 'object')) {
     const err = new Error('Missing or invalid disasterType');
     err.status = 400;
     throw err;
   }
 
-  const normalized = disasterType.toLowerCase();
-  const profile = PROFILES[normalized];
+  const dt = typeof disasterType === 'string' ? disasterType : disasterType.disasterType;
+  const opts = typeof disasterType === 'object' ? { ...disasterType, ...options } : options;
+
+  if (!dt || typeof dt !== 'string') {
+    const err = new Error('Missing or invalid disasterType');
+    err.status = 400;
+    throw err;
+  }
+
+  const normalized = dt.toLowerCase();
+  const profile = resolveProfile(normalized, opts) || PROFILES[normalized];
   if (!profile) {
-    const err = new Error(`Unknown disasterType '${disasterType}'. Available profiles: ${Object.keys(PROFILES).join(', ')}`);
+    const err = new Error(`Unknown disasterType '${dt}'. Available profiles: ${Object.keys(PROFILES).join(', ')}`);
     err.status = 400;
     throw err;
   }
@@ -332,5 +679,10 @@ module.exports = {
   isEligible,
   affectedAreaAcres,
   computeAmount,
-  scaleToBudget
+  scaleToBudget,
+  resolveProfile,
+  getProfile,
+  listProfiles,
+  SCHEMES,
+  SUPPORTED_STATES
 };
