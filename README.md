@@ -183,16 +183,132 @@ npm run demo
 
 ---
 
-## 📡 REST API Reference
+---
 
-| Method | Endpoint | Description | On-Chain Interaction |
-|---|---|---|---|
-| `POST` | `/claims` | Submit a new parcel claim with boundary & owner hash | `createClaim()` |
-| `GET` | `/claims` | List all registered parcels (for Leaflet map markers) | Off-chain DB / Cache |
-| `GET` | `/claims/:id` | Fetch parcel details, attestation history, & state | `getClaim()` |
-| `POST` | `/claims/:id/attest` | Submit community attestation (`{ role, name }`) | `attest()` |
-| `POST` | `/claims/:id/dispute` | Flag parcel boundary dispute (`{ reason }`) | `dispute()` |
-| `GET` | `/verify/:id` | Public verification view linked via QR certificate | `getClaim()` |
+## 🛠️ Backend Setup & Data Layer (Person B — Data & Logic)
+
+The Harmony BMS backend provides the high-performance off-chain data layer, geospatial boundary conflict engine, eligibility and budget scaling algorithms, and REST API connecting the React frontend to the MST Blockchain smart contracts.
+
+### 1. Backend Architecture & Technologies
+- **Runtime & Web Framework:** Node.js (v18+), Express v5
+- **Database Layer:** MongoDB Atlas via the official `mongodb` driver (`^7.6.0`) with automatic in-memory synchronized seed cache.
+- **Geospatial Processing:** Turf.js (`@turf/turf` v7) for polygon intersections, boundary overlap percentages, and point-in-polygon verification.
+- **Cryptographic Hashing:** Node.js native `crypto` SHA-256 for `ownerHash` (`bytes32`), `evidenceHash` (`bytes32`), and `zoneHash` (`bytes32`).
+- **Precision Monetary Math:** Pure JavaScript `BigInt` for wei arithmetic (zero floating-point precision loss).
+- **Multipart Uploads:** Multer with unique timestamped disk storage in `backend/uploads/`.
+- **Central Error Handling:** Standardized format `{ "error": "..." }` across all validation and database exceptions.
+
+### 2. Backend Installation & Running
+
+```bash
+# Navigate to the backend directory
+cd backend
+
+# Install dependencies
+npm install
+
+# Configure environment variables in backend/.env
+# PORT=5000
+# MONGO_URI=mongodb+srv://<user>:<password>@cluster.mongodb.net/harmonybms
+# RPC_URL=https://testnetrpc.mstblockchain.com
+
+# Seed database with demonstration parcels & relief schemes
+npm run seed
+# or from root:
+node scripts/seed.js
+
+# Start Express server (runs on port 5000 by default)
+npm start
+
+# Run all 5 unit & integration test suites (100% passing)
+npm test
+```
+
+### 3. Demonstration Seed Data (`scripts/seed.js`)
+Running `node scripts/seed.js` or `npm run seed` initializes MongoDB Atlas with:
+- **Parcel #1 (Ramesh Gowda):** Status `Verified` (Score: 5 from 2 neighbors + 1 village leader), 2.0 acres in Basavanagudi South, inside flood relief zone. Payout status `Paid` (2.0 MST).
+- **Parcel #2 (Lakshmi Bai):** Status `Pending` (Score: 2), 1.8 acres, inside flood relief zone. Ready for additional community attestations.
+- **Parcel #3 (Anand Kumar):** Status `Disputed` — **Overlaps Parcel #1 by 42%**, demonstrating automated collision detection by Turf.js, auto-calling `chain.dispute()`, and payout freeze pending human arbitration.
+- **Parcel #4 (Smt. Sunitha Rao):** Status `Verified` (Score: 6), 2.2 acres, inside flood relief zone. Payout status `Assessed` (1.1 MST).
+- **Disaster Relief Event (`relief_flood_2026`):** Karnataka SDRF Flood Relief Scheme 2026 covering Basavanagudi South basin with 100 MST budget, 1 MST/acre rate, and 5 MST max cap.
+
+---
+
+## 📡 REST API Reference (All 14 Endpoints)
+
+Primary identifier across all collections is the on-chain `claimId`. Monetary amounts are represented strictly as wei integer strings. Coordinate arrays follow GeoJSON `[lon, lat]` standard order.
+
+| # | Method | Endpoint | Description | Request Body / Parameters | On-Chain Function |
+|---|---|---|---|---|---|
+| **1** | `POST` | `/claims` | Submit parcel claim (runs overlap check) | Multipart or JSON `{ ownerName, nationalId, polygon, parcelAreaAcres, notes, beneficiaryAddress }` | `chain.createClaim(ownerHash, evidenceHash, lat, lon)` |
+| **2** | `GET` | `/claims` | List all land parcels for map markers | None | Read from Atlas / Cache |
+| **3** | `GET` | `/claims/:id` | Parcel details, attestations, & dispute status | URL param `:id` (claimId) | Merged with `chain.getClaim(claimId)` |
+| **4** | `POST` | `/claims/:id/attest` | Submit role-weighted community attestation | `{ role: "Neighbor" \| "Village Leader" \| "Accredited NGO", attesterName, notes }` | `chain.attest(claimId, weight)` |
+| **5** | `POST` | `/claims/:id/dispute` | Flag parcel boundary dispute | `{ reason, disputerName, overlappingClaimId }` | `chain.dispute(claimId)` |
+| **6** | `POST` | `/claims/:id/resolve` | Admin / arbiter resolves dispute | `{ restore: true \| false, resolutionNotes, arbiterAddress }` | `chain.resolveDispute(claimId, restore)` |
+| **7** | `GET` | `/verify/:id` | Public QR certificate view (re-checks evidence hash) | URL param `:id` (claimId) | Validates on-chain `evidenceHash` |
+| **8** | `POST` | `/reliefs` | Declare disaster relief event & compute `zoneHash` | `{ name, zone, ratePerAcre, maxPerClaim, budget, disasterType }` | `chain.createRelief(zoneHash, maxPerClaim, budget)` |
+| **9** | `GET` | `/reliefs` | List all active relief schemes | None | Read from Atlas `reliefs` |
+| **10** | `GET` | `/reliefs/:id/eligible` | Verified in-zone claims, damage levels, & scaled payouts | URL param `:id` (reliefId) | Filters `isEligible()`, runs `scaleToBudget()` |
+| **11** | `POST` | `/claims/:id/assess` | Field assessor records damage criteria | `{ reliefId, answers: { depth, structure, duration, type, contents }, confirmedAreaAcres }` | Stores assessment in Atlas `payouts` |
+| **12** | `POST` | `/claims/:id/approve-payout` | Government officer dual-approval | `{ reliefId, officer: "Officer_Name" }` | Advances status to `Approved` upon 2 approvals |
+| **13** | `POST` | `/claims/:id/release-payout` | Release compensation on MST Testnet | `{ reliefId }` | Emits `PayoutReleased`, deducts `remainingBudget` |
+| **14** | `GET` | `/claims/:id/payout` | View payout record & wei compensation | URL param `:id` (claimId) | Read from Atlas `payouts` |
+| **—** | `POST` | `/claims/check-overlap` | Pre-flight live Leaflet map collision check | `{ polygon: GeoJSON, excludeClaimId? }` | Pure Turf.js intersection analysis |
+| **—** | `GET` | `/disputes` | List all currently disputed parcels | None | Queries claims where `status == "Disputed"` |
+
+---
+
+## 🧪 Postman & cURL Collections
+
+### 1. Postman Collection
+Import [`Harmony_BMS.postman_collection.json`](./Harmony_BMS.postman_collection.json) or [`backend/postman_collection.json`](./backend/postman_collection.json) directly into Postman, Insomnia, Thunder Client, or Bruno.
+- Configured with environment variable `{{baseUrl}} = http://localhost:5000`.
+- Contains all 14 endpoints pre-configured with sample payloads, query parameters, and documentation.
+
+### 2. cURL Collection
+Execute the ready-to-run shell script [`backend/curl_commands.sh`](./backend/curl_commands.sh):
+```bash
+chmod +x backend/curl_commands.sh
+./backend/curl_commands.sh
+```
+
+Or execute individual requests:
+```bash
+# 1. Check all registered claims
+curl -X GET http://localhost:5000/claims
+
+# 2. Test pre-flight overlap on Leaflet map
+curl -X POST http://localhost:5000/claims/check-overlap \
+  -H "Content-Type: application/json" \
+  -d '{"polygon": {"type": "Polygon", "coordinates": [[[77.562, 12.941],[77.564, 12.941],[77.564, 12.943],[77.562, 12.943],[77.562, 12.941]]]}}'
+
+# 3. View public QR verification view
+curl -X GET http://localhost:5000/verify/1
+
+# 4. View eligible claims under flood relief scheme
+curl -X GET http://localhost:5000/reliefs/relief_flood_2026/eligible
+```
+
+---
+
+## 🧩 Core Backend Logic Modules
+
+1. **Geospatial Overlap Engine ([`backend/overlap.js`](./backend/overlap.js))**:
+   - `findOverlaps(newPolygon, existingClaims)`: Detects boundary collisions using Turf.js.
+   - Ignores shared boundary edges via 0.5% threshold filter.
+   - Generates standardized dispute reasons and administrative audit notes.
+2. **Eligibility & Relief Engine ([`backend/eligibility.js`](./backend/eligibility.js))**:
+   - `damageLevel(disasterType, answers)`: Data-driven damage scoring profiles for floods and earthquakes based on SDRF schedules.
+   - `isEligible(claim, relief)`: Verified, not Disputed, reference point in zone.
+   - `computeAmount(claim, relief, damageLevel)`: Pure `BigInt` wei arithmetic capped at `maxPerClaim`.
+   - `scaleToBudget(amounts, budgetWei)`: Proportional scaling guaranteeing total disbursements never exceed escrowed budget.
+3. **Relief Module ([`backend/relief.js`](./backend/relief.js))**:
+   - `createReliefRecord()`: Validates wei parameters and computes `zoneHash` (`bytes32`).
+   - `getEligibleClaimsForRelief()`: Produces full dashboard summary with eligible claims, damage scores, scaled amounts, and budget shortfall.
+   - `getPayoutRecord()` and `getVerificationCertificate()`.
+4. **Data Store Layer ([`backend/store.js`](./backend/store.js))**:
+   - Dual-persistence engine: queries MongoDB Atlas when connected; seamlessly falls back to synchronized in-memory cache if MongoDB is offline.
 
 ---
 
