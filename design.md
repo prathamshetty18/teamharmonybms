@@ -1,27 +1,35 @@
-# Post-Disaster Land Rights & Relief on MST Blockchain
+# Design Document: Post-Disaster Land Rights & Relief on MST Blockchain
 
-> **Preserving community consensus and immutable land claim evidence when physical records are lost in crisis, and using that verified proof to release government relief fast and without fraud.**  
-> *Built for BMS College of Engineering 24-Hour Buildathon (September 28–29, 2026)*
-
----
-
-## 📌 Overview & Real-World Problem
-
-When natural disasters (floods, fires, earthquakes) strike, physical land records, paper deeds, and local registry offices are frequently destroyed or rendered inaccessible. Displaced families face eviction, predatory land-grabbing, and prolonged bureaucratic delays when attempting to reclaim their property.
-
-The same missing paperwork also blocks **government relief**. Compensation schemes need proof that a family owns the affected land, and without records, payouts are slow, disputed, or lost to fraud and duplicate claims.
-
-This project delivers a **decentralized, community-attested land rights registry** deployed on the **MST Blockchain Testnet**, plus a **relief and reimbursement module** that turns verified land proof into transparent, auditable government compensation.
-
-> **Core Philosophy:** *Blockchain does not unilaterally decide who owns the land; it permanently preserves verifiable evidence of community consensus so no legitimate family is disenfranchised. Verified land proof is then the key that unlocks government relief.*
+> **Design goal:** Preserve community consensus and immutable land-claim evidence when physical records are lost, then use that verified proof to release government relief quickly and without fraud.
+> *BMS College of Engineering 24-Hour Buildathon (September 28-29, 2026) | Team Harmony*
 
 ---
 
-## 🏛️ System Architecture & Flowchart
+## 1. Problem & Design Goals
 
-The system connects a lightweight **React** frontend, a **Node.js/Express** backend with geospatial overlap detection and a relief eligibility engine, a **MongoDB Atlas** database for off-chain data, and smart contracts deployed on the **MST Testnet**.
+### Problem
+Floods, fires, and earthquakes destroy paper deeds and registry offices. Two things go wrong at once:
 
-### Flowchart Breakdown (Mermaid)
+1. **Land rights are lost.** Displaced families face eviction and land-grabbing when they cannot prove ownership.
+2. **Relief is blocked.** Compensation schemes need proof of ownership of the affected land. Without records, payouts are slow, disputed, or lost to fraud and duplicate claims.
+
+### Design goals
+| # | Goal | How the design meets it |
+|---|---|---|
+| G1 | Preserve evidence of ownership without the chain deciding ownership | Trust-weighted community attestation; chain stores hashes and votes, not judgments |
+| G2 | Protect privacy | No PII on-chain; only hashes, coordinates, scores, and payout state |
+| G3 | Prevent conflicting or duplicate claims | Geospatial overlap detection routes conflicts to human dispute resolution |
+| G4 | Make verification instant for third parties | Public QR page `/verify/:id` showing on-chain state and payout status |
+| G5 | Turn verified land proof into fast, auditable compensation | Relief module: geofenced eligibility, assessed damage, two-officer approval, one-time release |
+| G6 | Prevent payout fraud | Verified-only, dispute freeze, assessor role, one payout per claim per event, caps, budget ceiling |
+
+> **Core philosophy:** Blockchain does not unilaterally decide who owns the land; it permanently preserves verifiable evidence of community consensus so no legitimate family is disenfranchised. Verified land proof is then the key that unlocks government relief.
+
+---
+
+## 2. System Architecture
+
+Four tiers: a **React** frontend, a **Node.js/Express** backend (geospatial overlap detection and a relief eligibility engine), **MongoDB Atlas** for off-chain data, and smart contracts on the **MST Testnet**.
 
 ```mermaid
 flowchart TD
@@ -65,14 +73,14 @@ flowchart TD
         RPC["MST Blockchain Testnet: https://testnetrpc.mstblockchain.com"]
     end
 
-    %% Frontend to Backend Flows
     CF --> PC
     MV --> GC
     GD --> RL
+    GD --> EL
+    GD --> AS
     GD --> AP
     VP --> CJ
 
-    %% Backend processing and storage
     PC --> OD
     OD --> CC
     PC --> CL
@@ -81,7 +89,6 @@ flowchart TD
     CJ --> GT
     GC -.-> DR
 
-    %% Relief flow
     RL --> CR
     RL --> RP
     EL --> GT
@@ -90,7 +97,6 @@ flowchart TD
     AP --> AC
     AC --> RE
 
-    %% Styling to reflect architecture tiers
     classDef fe fill:#133e68,stroke:#3b82f6,stroke-width:1px,color:#ffffff;
     classDef be fill:#0d5c46,stroke:#10b981,stroke-width:1px,color:#ffffff;
     classDef db fill:#3b1f6b,stroke:#a78bfa,stroke-width:1px,color:#ffffff;
@@ -104,145 +110,183 @@ flowchart TD
     class RPC rpc;
 ```
 
-> The earlier `assets/architecture.png` no longer matches this design. Re-export it from the diagram above before submitting.
+### Component responsibilities
+| Tier | Component | Responsibility |
+|---|---|---|
+| Frontend | Claim Form / Map View | Draw boundary, capture GPS, upload photos, show claim markers |
+| Frontend | **Gov Dashboard** | Declare relief events; see eligible claims, budget remaining, and payout status; assess, approve, release |
+| Frontend | Verify Page | Public QR target; on-chain state, evidence re-hash check, payout status |
+| Backend | Overlap detection | Compare a candidate polygon against existing claims (Turf.js); route conflicts to dispute |
+| Backend | **Eligibility engine** | A claim is eligible when Verified, not Disputed, and inside the relief zone (point-in-polygon) |
+| Backend | `chain.js` | Single contract layer for both `LandRegistry` and `ReliefFund` |
+| Database | Atlas | Claims, images, reliefs, payouts (all off-chain data) |
+| Chain | `LandRegistry` | Claim hashes, attestations, scores, status |
+| Chain | **`ReliefFund`** | Escrowed budget, assessments, approvals, one-time release |
 
 ---
 
-## 💸 Relief & Reimbursement Module
+## 3. Data Design: On-Chain vs. Off-Chain
 
-Government compensation is a core feature, not an add-on. Verified land proof decides who is eligible, and the ledger makes every payout public and auditable.
+No PII goes on a public ledger.
 
-### Flow
-
-1. **Declare relief event.** An authorized government admin creates a relief event: name, affected-zone polygon, compensation rule, per-claim cap, and a budget deposited into the `ReliefFund` contract.
-2. **Automatic eligibility.** A claim is eligible when it is `Verified` (score ≥ 5), not `Disputed`, and its location falls inside the affected zone (Turf.js point-in-polygon).
-3. **Damage assessment.** An accredited assessor (field officer or NGO) records a damage level with photo evidence. The evidence hash goes on-chain and the photos stay off-chain.
-4. **Amount calculation.** `amount = parcel area × rate per acre × damage multiplier`, capped at the per-claim maximum.
-5. **Two-officer approval.** Two government officers must approve the same amount and the same beneficiary before funds can move.
-6. **Release.** `release()` pays the beneficiary once per claim per relief event and records the transaction hash. It re-checks that the claim is still `Verified` at the moment of payment.
-7. **Public status.** The QR verify page shows the payout state (`Eligible` → `Assessed` → `Approved` → `Paid`), the amount, and the transaction hash.
-
-### Anti-fraud rules
-
-- Payouts only go to `Verified` claims, so they require weighted community consensus.
-- Disputed claims are frozen. An approved payout cannot be released while its claim is `Disputed`, until `resolveDispute` restores it.
-- Damage must be assessed by a verified assessor role, not self-reported.
-- One payout per claim per relief event, with a per-claim cap and a budget ceiling.
-- Every payout, approval, and assessment is emitted as an on-chain event.
-
-### Testnet vs. real world
-
-On the testnet, payouts are released as native MST from the `ReliefFund` contract, which simulates the disbursement. In production, governments pay through bank transfer (for example India's Direct Benefit Transfer), and the chain would record the payment reference as the audit trail. The chain makes officer actions visible and permanent, but it does not make them automatically correct.
-
----
-
-## 🔒 Privacy Architecture: On-Chain vs. Off-Chain
-
-To adhere to privacy standards and avoid storing sensitive personally identifiable information (PII) on a public ledger:
-
-| On-Chain (`LandRegistry.sol`, `ReliefFund.sol`) | Off-Chain (MongoDB Atlas / Secure Backend) |
+| On-Chain (`LandRegistry.sol`, `ReliefFund.sol`) | Off-Chain (MongoDB Atlas / secure backend) |
 |---|---|
 | `ownerHash` = `SHA-256(NationalID + Salt)` | Owner full name, phone number, government ID |
 | `evidenceHash` = `SHA-256(Photos + GeoJSON + Witnesses)` | Original deed photos, ground survey images (stored in Atlas) |
-| Reference Latitude & Longitude (`latE6`, `lonE6`) | Full polygon boundary coordinates |
-| Community Trust Score & Status (`Pending` / `Verified` / `Disputed`) | Dispute notes, witness written statements |
-| Attestation logs (Attester address, role, score) | Human-readable attester display profiles |
-| Relief event: zone hash, per-claim cap, budget | Full zone polygon, scheme description |
-| Damage level and `damageEvidenceHash` | Damage assessment photos and notes |
-| Payout status, amount, beneficiary address, approvals, tx hash | Bank or account details, beneficiary contact info |
+| Reference latitude and longitude (`latE6`, `lonE6`) | Full polygon boundary coordinates |
+| Community trust score and status (`Pending` / `Verified` / `Disputed`) | Dispute notes, witness written statements |
+| Attestation logs (attester address, role, score) | Human-readable attester display profiles |
+| **Relief event: zone hash, per-claim cap, budget** | **Full zone polygon, scheme description** |
+| **Damage level and `damageEvidenceHash`** | **Damage assessment photos and notes** |
+| **Payout status, amount, beneficiary address, approvals, tx hash** | **Bank or account details, beneficiary contact info** |
 
-The beneficiary wallet address is public on-chain. Do not store names or ID numbers next to it.
+**Privacy note:** the beneficiary wallet address is public on-chain. Never store names or ID numbers next to it.
 
----
-
-## ⭐ Key Features
-
-1. **Proof of Existence on MST Testnet**
-   - High-throughput, low-fee smart contract transactions on the MST network create tamper-evident claim timestamps.
-2. **Trust-Weighted Multi-Party Attestation**
-   - Consensus requires weighted scores from diverse community actors:
-     - **Neighbor:** `+1` weight
-     - **Village Leader:** `+3` weight
-     - **Accredited NGO:** `+3` weight
-   - Claims transition automatically from `Pending` to **`Verified`** once reaching **Score ≥ 5**.
-3. **Automated Geospatial Overlap Detection**
-   - Backend compares candidate claim polygons against verified registries using coordinate intersection algorithms.
-   - Conflicting submissions automatically route to the **Dispute Resolver** for human arbitration.
-4. **Public QR Proof Certificate (`/verify/:id`)**
-   - Generates a cryptographically verifiable QR code linking directly to on-chain state, allowing emergency aid workers, relief agencies, and insurers to confirm land rights immediately.
-5. **Government Relief & Reimbursement**
-   - Relief events with a geofenced zone and a funded on-chain budget.
-   - Automatic eligibility from verified claims, damage assessment by accredited assessors, two-officer approval, and one-time release with a public audit trail.
-6. **Government Dashboard**
-   - Officers see eligible claims, budget remaining, and payout status, and can assess, approve, and release payouts.
-7. **Tamper-Evident Evidence in MongoDB Atlas**
-   - Photos and claim data live off-chain in Atlas. The verify page re-hashes the stored evidence and compares it to the on-chain `evidenceHash`.
+**Tamper evidence:** the verify page re-hashes the evidence stored in Atlas and compares it to the on-chain `evidenceHash`. If they differ, the page flags the record.
 
 ---
 
-## ⚙️ Tech Stack
+## 4. Land Claim Design (Core Registry)
 
-- **Smart Contracts:** Solidity `^0.8.0`, deployed on MST Testnet (`LandRegistry.sol`, `ReliefFund.sol`)
-- **Blockchain Client & SDK:** `@mstblockchain/mst-sdk`, `ethers.js` v6, BridgeKey Wallet
-- **Backend API:** Node.js, Express, `dotenv`, `fs-extra`, Turf.js (geospatial calculations and zone checks), `multer` (uploads)
-- **Database:** MongoDB Atlas (`mongodb` driver) for claims, images, reliefs, and payouts
-- **Frontend:** React, Leaflet Maps (interactive boundary drawing & GPS), HTML5, CSS3
+### 4.1 Trust-weighted attestation
+| Attester role | Weight |
+|---|---|
+| Neighbor | +1 |
+| Village Leader | +3 |
+| Accredited NGO | +3 |
+
+A claim moves `Pending` to **`Verified`** when score is **>= 5**.
+
+### 4.2 Claim state machine
+```
+Pending --(score >= 5)--> Verified
+Pending/Verified --(dispute)--> Disputed
+Disputed --(resolveDispute: restore = true)--> Verified
+Disputed --(resolveDispute: restore = false)--> Pending
+```
+
+### 4.3 Geospatial overlap detection
+On `POST /claims`, the backend compares the candidate polygon to existing claims. Overlaps are flagged and routed to the Dispute Resolver for human arbitration; the chain records the flag via `dispute()`.
+
+### 4.4 Public QR certificate
+`/verify/:id` shows claim status, score, attesters, evidence-hash match, and (new) the **payout status** for any relief event linked to the claim.
 
 ---
 
-## 🔗 Network & Smart Contract Specifications
+## 5. Relief & Reimbursement Module (New)
 
-- **Network:** MST Blockchain Testnet
-- **RPC URL:** `https://testnetrpc.mstblockchain.com`
-- **Smart Contracts:** `contracts/LandRegistry.sol`, `contracts/ReliefFund.sol` *(relief contract in progress)*
-- **Compiled Artifacts:** `build/LandRegistry.json`, `build/ReliefFund.json`
+Government compensation is a core feature. Verified land proof decides who is eligible, and the ledger makes every payout public and auditable.
 
-### Smart Contract Methods (`LandRegistry.sol`)
+### 5.1 Actors
+| Actor | Capability |
+|---|---|
+| Government admin | Declares relief events, deposits budget, grants officer and assessor roles |
+| Assessor (field officer or NGO) | Records damage level with photo evidence |
+| Government officer (x2) | Approves payout amount and beneficiary |
+| Claimant | Receives payout; sees status on the verify page |
+| Public / aid workers | Read payout state and tx hash on the verify page |
+
+### 5.2 End-to-end flow
+1. **Declare relief event.** Name, affected-zone polygon, compensation rule, per-claim cap, and budget deposited into `ReliefFund`.
+2. **Automatic eligibility.** Claim is `Verified` (score >= 5), not `Disputed`, and inside the zone (Turf.js point-in-polygon).
+3. **Damage assessment.** Accredited assessor records a damage level with photos. The evidence hash goes on-chain; photos stay off-chain.
+4. **Amount calculation.** `amount = parcel area x rate per acre x damage multiplier`, capped at the per-claim maximum.
+5. **Two-officer approval.** Two officers must approve the same amount and the same beneficiary.
+6. **Release.** `release()` pays once per claim per relief event and records the tx hash. It re-checks that the claim is still `Verified` at payment time.
+7. **Public status.** The verify page shows `Eligible` -> `Assessed` -> `Approved` -> `Paid`, the amount, and the tx hash.
+
+### 5.3 Payout state machine
+```
+None --(assess)--> Assessed --(2 matching approvals)--> Approved --(release)--> Paid
+```
+`release()` reverts if the claim is `Disputed` or the payout is already `Paid`.
+
+### 5.4 Anti-fraud rules
+| Rule | Enforced by |
+|---|---|
+| Payouts only to `Verified` claims | `assess()` and `release()` check `LandRegistry` |
+| Disputed claims are frozen | `release()` reverts until `resolveDispute` restores the claim |
+| Damage not self-reported | `assess()` restricted to assessor role |
+| No duplicate payouts | One payout per claim per relief event |
+| Bounded spend | Per-claim cap and budget ceiling checked in `approvePayout()` |
+| No single-officer approval | Two officers must submit identical amount and beneficiary |
+| Full audit trail | Every payout, approval, and assessment emitted as an on-chain event |
+
+### 5.5 Testnet vs. real world
+- **Testnet:** payouts are released as native MST from `ReliefFund`, simulating the disbursement.
+- **Production:** governments pay through bank transfer (for example India's Direct Benefit Transfer); the chain records the payment reference as the audit trail.
+- **Limit of the design:** the chain makes officer actions visible and permanent, but does not make them automatically correct.
+
+---
+
+## 6. Smart Contract Interfaces
+
+### 6.1 `LandRegistry.sol`
+| Function | Signature | Description |
+|---|---|---|
+| `createClaim` | `(bytes32 ownerHash, bytes32 evidenceHash, uint32 latE6, uint32 lonE6)` | Creates a claim; emits `ClaimCreated` |
+| `attest` | `(uint256 claimId, uint8 role)` | Adds a role-weighted signature; updates status |
+| `dispute` | `(uint256 claimId)` | Flags a conflicting claim |
+| `resolveDispute` | `(uint256 claimId, bool restore)` | Arbiter resolves a dispute |
+| `setRole` | `(address user, uint8 role)` | Admin only; defines attester roles |
+| `getClaim` | `(uint256 claimId)` | View: hashes, coordinates, score, status |
+
+### 6.2 `ReliefFund.sol` (planned)
+Reads claim status from `LandRegistry` and holds the relief budget in escrow.
 
 | Function | Signature | Description |
 |---|---|---|
-| `createClaim` | `(bytes32 ownerHash, bytes32 evidenceHash, uint32 latE6, uint32 lonE6)` | Initializes a land record on-chain and emits `ClaimCreated`. |
-| `attest` | `(uint256 claimId, uint8 role)` | Registers role-weighted signature and triggers status update. |
-| `dispute` | `(uint256 claimId)` | Flags a conflicting claim for manual mediation. |
-| `resolveDispute` | `(uint256 claimId, bool restore)` | Authorized admin/arbiter resolves disputed claims. |
-| `setRole` | `(address user, uint8 role)` | Admin only. Defines attester roles. |
-| `getClaim` | `(uint256 claimId)` | Gasless `view` method returning claim hashes, coordinates, score, and status. |
-
-### Smart Contract Methods (`ReliefFund.sol`, planned)
-
-`ReliefFund` reads claim status from `LandRegistry` and holds the relief budget in escrow.
-
-| Function | Signature | Description |
-|---|---|---|
-| `createRelief` | `(bytes32 zoneHash, uint256 maxPerClaim) payable` | Government declares a relief event and deposits its budget. Emits `ReliefCreated`. |
-| `fundRelief` | `(uint256 reliefId) payable` | Tops up a relief event's budget. |
-| `setOfficer` / `setAssessor` | `(address user, bool allowed)` | Admin only. Grants the government officer or assessor role. |
-| `assess` | `(uint256 claimId, uint256 reliefId, uint8 damageLevel, bytes32 damageEvidenceHash)` | Assessor records damage. Requires the claim to be `Verified`. |
-| `approvePayout` | `(uint256 claimId, uint256 reliefId, uint256 amount, address payable beneficiary)` | Officer approval. Two officers must submit the same amount and beneficiary. Amount must not exceed the cap or remaining budget. |
-| `release` | `(uint256 claimId, uint256 reliefId)` | Pays the beneficiary once. Reverts if the claim is `Disputed` or already paid. Emits `PayoutReleased`. |
-| `getPayout` | `(uint256 claimId, uint256 reliefId)` | View: payout status, amount, beneficiary, approvals. |
+| `createRelief` | `(bytes32 zoneHash, uint256 maxPerClaim) payable` | Declares a relief event and deposits budget; emits `ReliefCreated` |
+| `fundRelief` | `(uint256 reliefId) payable` | Tops up a relief budget |
+| `setOfficer` / `setAssessor` | `(address user, bool allowed)` | Admin only; grants officer or assessor role |
+| `assess` | `(uint256 claimId, uint256 reliefId, uint8 damageLevel, bytes32 damageEvidenceHash)` | Assessor records damage; claim must be `Verified` |
+| `approvePayout` | `(uint256 claimId, uint256 reliefId, uint256 amount, address payable beneficiary)` | Officer approval; two matching approvals required; within cap and budget |
+| `release` | `(uint256 claimId, uint256 reliefId)` | Pays once; reverts if `Disputed` or already paid; emits `PayoutReleased` |
+| `getPayout` | `(uint256 claimId, uint256 reliefId)` | View: status, amount, beneficiary, approvals |
 
 Payout status values: `None`, `Assessed`, `Approved`, `Paid`.
 
+**Network:** MST Blockchain Testnet, RPC `https://testnetrpc.mstblockchain.com`.
+**Artifacts:** `build/LandRegistry.json`, `build/ReliefFund.json`.
+
 ---
 
-## 🚀 Quickstart & Setup Guide
+## 7. REST API Design
 
-### 1. Prerequisites
-- Node.js (v18.x or v20.x recommended)
-- Git
-- Funded MST Testnet account (via MST Faucet)
-- A free MongoDB Atlas cluster (M0), a database user, and a connection string
+| Method | Endpoint | Description | On-Chain Call |
+|---|---|---|---|
+| `POST` | `/claims` | Submit a claim with boundary, photos, owner hash | `createClaim()` |
+| `GET` | `/claims` | List all parcels (map markers) | Off-chain DB |
+| `GET` | `/claims/:id` | Parcel details, attestation history, state | `getClaim()` |
+| `POST` | `/claims/:id/attest` | Community attestation (`{ role, name }`) | `attest()` |
+| `POST` | `/claims/:id/dispute` | Flag a boundary dispute (`{ reason }`) | `dispute()` |
+| `POST` | `/claims/:id/resolve` | Admin resolves a dispute | `resolveDispute()` |
+| `GET` | `/verify/:id` | Public verification view, includes payout status | `getClaim()`, `getPayout()` |
+| `POST` | `/reliefs` | Declare relief event (zone, rate, cap, budget) | `createRelief()` |
+| `GET` | `/reliefs` | List relief events | Off-chain DB |
+| `GET` | `/reliefs/:id/eligible` | Verified, undisputed, in-zone claims with computed amounts | `getClaim()` |
+| `POST` | `/claims/:id/assess` | Assessor records damage (`{ reliefId, damageLevel }` + photos) | `assess()` |
+| `POST` | `/claims/:id/approve-payout` | Officer approval (`{ reliefId }`) | `approvePayout()` |
+| `POST` | `/claims/:id/release-payout` | Release an approved payout (`{ reliefId }`) | `release()` |
+| `GET` | `/claims/:id/payout` | Payout status, amount, tx hash | `getPayout()` |
 
-### 2. Installation
-```bash
-git clone https://github.com/prathamshetty18/teamharmonybms.git
-cd teamharmonybms
-npm install
-```
+---
 
-### 3. Environment Configuration
-Create a `.env` file in the root directory (never commit this file):
+## 8. Technology Choices
+
+| Layer | Choice | Reason |
+|---|---|---|
+| Contracts | Solidity `^0.8.0` on MST Testnet | Low-fee, fast confirmation; tamper-evident timestamps |
+| Chain client | `@mstblockchain/mst-sdk`, `ethers.js` v6, BridgeKey Wallet | Official SDK plus standard EVM tooling |
+| Backend | Node.js, Express, `dotenv`, `fs-extra`, `multer` | Fast to build; handles photo uploads |
+| Geospatial | Turf.js | Overlap detection and zone point-in-polygon in one library |
+| Database | MongoDB Atlas (`mongodb` driver) | Flexible documents for claims, images, reliefs, payouts |
+| Frontend | React, Leaflet, HTML5, CSS3 | Interactive boundary drawing and GPS capture |
+
+---
+
+## 9. Environment & Deployment
+
 ```env
 RPC_URL=https://testnetrpc.mstblockchain.com
 PRIVATE_KEY=0xYOUR_TESTNET_PRIVATE_KEY
@@ -253,62 +297,37 @@ MONGO_URI=mongodb+srv://USER:PASSWORD@YOUR_CLUSTER.mongodb.net/
 PORT=5000
 ```
 
-### 4. Smart Contract Lifecycle Scripts
-```bash
-# 1. Generate or verify your wallet
-npm run wallet
+Deployment order: `npm run compile` -> `npm run deploy` (LandRegistry) -> `npm run deploy:relief` (ReliefFund, pointed at the deployed LandRegistry) -> `npm run demo`.
 
-# 2. Check testnet connection and balance
-npm run balance
-
-# 3. Compile the Solidity contracts
-npm run compile
-
-# 4. Deploy LandRegistry to MST Testnet (auto-updates .env and SUBMISSION.md)
-npm run deploy
-
-# 5. Run end-to-end claim interaction demo
-npm run demo
-
-# 6. (planned) Deploy ReliefFund, pointing at the deployed LandRegistry
-npm run deploy:relief
-```
+Never commit `.env`.
 
 ---
 
-## 📡 REST API Reference
+## 10. Demo Scenario
 
-| Method | Endpoint | Description | On-Chain Interaction |
-|---|---|---|---|
-| `POST` | `/claims` | Submit a new parcel claim with boundary, photos & owner hash | `createClaim()` |
-| `GET` | `/claims` | List all registered parcels (for Leaflet map markers) | Off-chain DB / Cache |
-| `GET` | `/claims/:id` | Fetch parcel details, attestation history, & state | `getClaim()` |
-| `POST` | `/claims/:id/attest` | Submit community attestation (`{ role, name }`) | `attest()` |
-| `POST` | `/claims/:id/dispute` | Flag parcel boundary dispute (`{ reason }`) | `dispute()` |
-| `POST` | `/claims/:id/resolve` | Admin resolves a dispute | `resolveDispute()` |
-| `GET` | `/verify/:id` | Public verification view linked via QR certificate, including payout status | `getClaim()`, `getPayout()` |
-| `POST` | `/reliefs` | Government declares a relief event (zone, rate, cap, budget) | `createRelief()` |
-| `GET` | `/reliefs` | List relief events | Off-chain DB |
-| `GET` | `/reliefs/:id/eligible` | Claims that are Verified, undisputed, and inside the zone, with computed amounts | `getClaim()` |
-| `POST` | `/claims/:id/assess` | Assessor records damage (`{ reliefId, damageLevel }` + photos) | `assess()` |
-| `POST` | `/claims/:id/approve-payout` | Officer approves (`{ reliefId }`) | `approvePayout()` |
-| `POST` | `/claims/:id/release-payout` | Releases an approved payout (`{ reliefId }`) | `release()` |
-| `GET` | `/claims/:id/payout` | Payout status, amount, and tx hash for a claim | `getPayout()` |
+1. Three neighbors and a village leader attest a claim until it reaches score >= 5 (`Verified`).
+2. A conflicting overlapping claim is submitted and routed to dispute.
+3. Government admin declares a flood relief event with a zone that covers the verified claim.
+4. The dashboard lists the claim as eligible, with a computed amount.
+5. An assessor records damage; two officers approve; `release()` pays out.
+6. Scanning the QR code shows `Paid`, the amount, and the tx hash.
+7. Trying to release a payout on the disputed claim fails, showing the freeze.
 
 ---
 
-## 👥 Team Harmony (BMSCE 2026)
+## 11. Team & Ownership
 
-| Member | Role | Key Responsibilities |
+| Member | Role | Design areas owned |
 |---|---|---|
-| **Srujan** | Blockchain Lead | Smart contracts (`LandRegistry.sol`, `ReliefFund.sol`), deployment, MST SDK integration, tx verification |
-| **Team Member B** | Backend / API Lead | Express server, MongoDB Atlas, polygon overlap algorithm, relief eligibility engine, REST endpoints, `chain.js` contract layer |
-| **Team Member C** | Frontend Lead | Leaflet map interface, claim creation workflow, attestation UI, QR certificate view, government dashboard, payout status badge |
-| **Team Member D** | Product & Demo Lead | Problem statement, demo script, seeded relief event, verification checklist, documentation |
+| **Srujan** | Blockchain Lead | `LandRegistry.sol`, `ReliefFund.sol`, deployment, MST SDK, tx verification |
+| **Team Member B** | Backend / API Lead | Express, Atlas, overlap algorithm, relief eligibility engine, REST endpoints, `chain.js` |
+| **Team Member C** | Frontend Lead | Leaflet map, claim workflow, attestation UI, QR view, government dashboard, payout status badge |
+| **Team Member D** | Product & Demo Lead | Problem statement, demo script, seeded relief event, verification checklist, docs |
 
 ---
 
-## 📄 License & Hackathon Deliverables
+## 12. Open Items
 
-- **Submission Log:** See `SUBMISSION.md` for live contract addresses, deployment transaction hashes, and proof-of-claim and payout execution receipts.
-- **License:** MIT License. Built for social impact and disaster resilience.
+- `ReliefFund.sol` and `deploy:relief` are still in progress.
+- Record deployed addresses, tx hashes, and payout receipts in `SUBMISSION.md`.
+- Add screenshots or a re-exported diagram from the Mermaid source if a static image is needed for submission.
