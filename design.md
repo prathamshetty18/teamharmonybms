@@ -1,351 +1,314 @@
-# design.md — Build Plan: Post-Disaster Land Rights on MST Blockchain
+# Post-Disaster Land Rights & Relief on MST Blockchain
 
-**Event:** BMS College of Engineering 24-hour buildathon, 28-29 Sept 2026
-**Stack:** Node.js + Express (backend), React or plain HTML (frontend), Leaflet (map), Solidity on MST Testnet, BridgeKey wallet
-**Goal:** a working demo where a family's land claim is attested by neighbors, a leader and an NGO, verified on MST Testnet, shown on a map with overlap detection, and proven with a QR certificate.
-
----
-
-## 1. Team roles
-
-| Member | Role | Owns | Does NOT touch |
-|---|---|---|---|
-| **A (Srujan)** | **Blockchain Lead (COMPLETE)** | Wallets and funding, `LandRegistry.sol`, compile and deploy on MST Testnet, `scripts/` module, BridgeKey integration, all tx hashes, `SUBMISSION.md` | UI styling, slides |
-| **B** | Backend / API | Express server, database (JSON file or SQLite), REST endpoints, overlap detection, calling A's `chain.js` | Solidity, keys |
-| **C** | Frontend | Claim form, map view (Leaflet), attestation screen, QR certificate page, dispute button | Backend logic, keys |
-| **D** | Product, docs and demo | Problem statement, PDF, pitch deck, README, seed/demo data, demo script, testing checklist, GitHub repo hygiene | Code, except README and test data |
-
-**Status: A's core work is complete.** Integration with B and C proceeds against the working scripts.
+> **Preserving community consensus and immutable land claim evidence when physical records are lost in crisis, and using that verified proof to release government relief fast and without fraud.**  
+> *Built for BMS College of Engineering 24-Hour Buildathon (September 28–29, 2026)*
 
 ---
 
-## 2. Architecture
+## 📌 Overview & Real-World Problem
 
+When natural disasters (floods, fires, earthquakes) strike, physical land records, paper deeds, and local registry offices are frequently destroyed or rendered inaccessible. Displaced families face eviction, predatory land-grabbing, and prolonged bureaucratic delays when attempting to reclaim their property.
+
+The same missing paperwork also blocks **government relief**. Compensation schemes need proof that a family owns the affected land, and without records, payouts are slow, disputed, or lost to fraud and duplicate claims.
+
+This project delivers a **decentralized, community-attested land rights registry** deployed on the **MST Blockchain Testnet**, plus a **relief and reimbursement module** that turns verified land proof into transparent, auditable government compensation.
+
+> **Core Philosophy:** *Blockchain does not unilaterally decide who owns the land; it permanently preserves verifiable evidence of community consensus so no legitimate family is disenfranchised. Verified land proof is then the key that unlocks government relief.*
+
+---
+
+## 🏛️ System Architecture & Flowchart
+
+The system connects a lightweight **React** frontend, a **Node.js/Express** backend with geospatial overlap detection and a relief eligibility engine, a **MongoDB Atlas** database for off-chain data, and smart contracts deployed on the **MST Testnet**.
+
+### Flowchart Breakdown (Mermaid)
+
+```mermaid
+flowchart TD
+    subgraph Frontend["Frontend (React)"]
+        direction TB
+        CF["Claim Form<br/><small>Map + GPS</small>"]
+        MV["Map View<br/><small>Claim markers</small>"]
+        GD["Gov Dashboard<br/><small>Reliefs + payouts</small>"]
+        VP["Verify Page<br/><small>Public /verify/:id</small>"]
+    end
+
+    subgraph Backend["Backend (Express + Node.js)"]
+        direction TB
+        PC["POST /claims<br/><small>Create claim</small>"]
+        PA["POST /attest<br/><small>Multi-sig vote</small>"]
+        GC["GET /claims<br/><small>Query all claims</small>"]
+        RL["POST /reliefs<br/><small>Declare relief event</small>"]
+        EL["Eligibility engine<br/><small>Zone + Verified check</small>"]
+        AS["POST /assess<br/><small>Damage level</small>"]
+        AP["POST /approve-payout<br/><small>Officer approval</small>"]
+        CJ["chain.js<br/><small>Contract layer</small>"]
+        OD["Overlap detection<br/><small>Compare all coordinates</small>"]
+        DR["Dispute resolver<br/><small>Flag for human review</small>"]
+    end
+
+    subgraph Mongo["MongoDB Atlas"]
+        direction TB
+        CL["claims + images<br/><small>Off-chain evidence</small>"]
+        RP["reliefs + payouts<br/><small>Off-chain records</small>"]
+    end
+
+    subgraph Blockchain["Blockchain (MST Testnet)"]
+        direction TB
+        CC["createClaim()<br/><small>Proof of existence</small>"]
+        AT["attest()<br/><small>Add signature</small>"]
+        DP["dispute()<br/><small>Flag conflict</small>"]
+        GT["getClaim()<br/><small>Read immutable</small>"]
+        CR["createRelief()<br/><small>Fund a relief event</small>"]
+        AC["assess() / approvePayout()<br/><small>Damage + 2 officers</small>"]
+        RE["release()<br/><small>Pay once, if Verified</small>"]
+        RPC["MST Blockchain Testnet: https://testnetrpc.mstblockchain.com"]
+    end
+
+    %% Frontend to Backend Flows
+    CF --> PC
+    MV --> GC
+    GD --> RL
+    GD --> AP
+    VP --> CJ
+
+    %% Backend processing and storage
+    PC --> OD
+    OD --> CC
+    PC --> CL
+    PA --> AT
+    DR --> DP
+    CJ --> GT
+    GC -.-> DR
+
+    %% Relief flow
+    RL --> CR
+    RL --> RP
+    EL --> GT
+    EL --> RP
+    AS --> AC
+    AP --> AC
+    AC --> RE
+
+    %% Styling to reflect architecture tiers
+    classDef fe fill:#133e68,stroke:#3b82f6,stroke-width:1px,color:#ffffff;
+    classDef be fill:#0d5c46,stroke:#10b981,stroke-width:1px,color:#ffffff;
+    classDef db fill:#3b1f6b,stroke:#a78bfa,stroke-width:1px,color:#ffffff;
+    classDef bc fill:#6b3f0a,stroke:#f59e0b,stroke-width:1px,color:#ffffff;
+    classDef rpc fill:#4a2800,stroke:#d97706,stroke-width:1px,color:#fbbf24;
+
+    class CF,MV,GD,VP fe;
+    class PC,PA,GC,RL,EL,AS,AP,CJ,OD,DR be;
+    class CL,RP db;
+    class CC,AT,DP,GT,CR,AC,RE bc;
+    class RPC rpc;
 ```
-[Frontend: C]  <-- HTTP -->  [Backend API: B]  --calls-->  [chain.js: B wraps A's scripts]  -->  MST Testnet
-   map, forms,                 DB (parcels, photos,            Signer key in .env              LandRegistry.sol
-   QR, dispute                 polygons, overlap check)         All tx hashes logged           (deployed, live)
-```
 
-**Rule:** personal data (name, ID number, photos) stays OFF-chain. On-chain we store only hashes, coordinates, scores and status. Blockchain preserves evidence of community consensus. It does not decide ownership.
+> The earlier `assets/architecture.png` no longer matches this design. Re-export it from the diagram above before submitting.
 
 ---
 
-## 3. What goes on-chain vs off-chain
+## 💸 Relief & Reimbursement Module
 
-| On-chain (`LandRegistry.sol`) | Off-chain (backend DB) |
+Government compensation is a core feature, not an add-on. Verified land proof decides who is eligible, and the ledger makes every payout public and auditable.
+
+### Flow
+
+1. **Declare relief event.** An authorized government admin creates a relief event: name, affected-zone polygon, compensation rule, per-claim cap, and a budget deposited into the `ReliefFund` contract.
+2. **Automatic eligibility.** A claim is eligible when it is `Verified` (score ≥ 5), not `Disputed`, and its location falls inside the affected zone (Turf.js point-in-polygon).
+3. **Damage assessment.** An accredited assessor (field officer or NGO) records a damage level with photo evidence. The evidence hash goes on-chain and the photos stay off-chain.
+4. **Amount calculation.** `amount = parcel area × rate per acre × damage multiplier`, capped at the per-claim maximum.
+5. **Two-officer approval.** Two government officers must approve the same amount and the same beneficiary before funds can move.
+6. **Release.** `release()` pays the beneficiary once per claim per relief event and records the transaction hash. It re-checks that the claim is still `Verified` at the moment of payment.
+7. **Public status.** The QR verify page shows the payout state (`Eligible` → `Assessed` → `Approved` → `Paid`), the amount, and the transaction hash.
+
+### Anti-fraud rules
+
+- Payouts only go to `Verified` claims, so they require weighted community consensus.
+- Disputed claims are frozen. An approved payout cannot be released while its claim is `Disputed`, until `resolveDispute` restores it.
+- Damage must be assessed by a verified assessor role, not self-reported.
+- One payout per claim per relief event, with a per-claim cap and a budget ceiling.
+- Every payout, approval, and assessment is emitted as an on-chain event.
+
+### Testnet vs. real world
+
+On the testnet, payouts are released as native MST from the `ReliefFund` contract, which simulates the disbursement. In production, governments pay through bank transfer (for example India's Direct Benefit Transfer), and the chain would record the payment reference as the audit trail. The chain makes officer actions visible and permanent, but it does not make them automatically correct.
+
+---
+
+## 🔒 Privacy Architecture: On-Chain vs. Off-Chain
+
+To adhere to privacy standards and avoid storing sensitive personally identifiable information (PII) on a public ledger:
+
+| On-Chain (`LandRegistry.sol`, `ReliefFund.sol`) | Off-Chain (MongoDB Atlas / Secure Backend) |
 |---|---|
-| `ownerHash` = sha256(ID + salt) | Owner name, phone, real ID |
-| `evidenceHash` = sha256(photos + GPS + polygon + witness list) | Photos, GeoJSON polygon, notes |
-| Point lat/lon | Full boundary polygon |
-| Trust score, status (Pending / Verified / Disputed) | Dispute reason text, adjudication notes |
-| Attestation events (who, role, score) | Display names of attesters |
+| `ownerHash` = `SHA-256(NationalID + Salt)` | Owner full name, phone number, government ID |
+| `evidenceHash` = `SHA-256(Photos + GeoJSON + Witnesses)` | Original deed photos, ground survey images (stored in Atlas) |
+| Reference Latitude & Longitude (`latE6`, `lonE6`) | Full polygon boundary coordinates |
+| Community Trust Score & Status (`Pending` / `Verified` / `Disputed`) | Dispute notes, witness written statements |
+| Attestation logs (Attester address, role, score) | Human-readable attester display profiles |
+| Relief event: zone hash, per-claim cap, budget | Full zone polygon, scheme description |
+| Damage level and `damageEvidenceHash` | Damage assessment photos and notes |
+| Payout status, amount, beneficiary address, approvals, tx hash | Bank or account details, beneficiary contact info |
+
+The beneficiary wallet address is public on-chain. Do not store names or ID numbers next to it.
 
 ---
 
-## 4. Features
+## ⭐ Key Features
 
-**Core** ✅ **Blockchain foundation ready**
-1. ✅ Generate and fund wallet  
-2. ✅ Connect to MST Testnet  
-3. ✅ Send native MST  
-4. ✅ Compile Solidity contract  
-5. ✅ Deploy LandRegistry.sol to testnet  
-6. ✅ Call contract functions via encoded transactions  
-
-**Standout** (In progress — B and C build against these)
-7. **Trust-weighted attestation:** Neighbor = 1, Leader = 3, NGO = 3. Verified at score >= 5. Already in the contract.  
-8. **Map view with automatic overlap detection:** when a new polygon overlaps an existing one, the backend flags it and the claim can be sent to dispute.  
-9. **QR proof certificate:** a page showing claim ID, status, contract address and tx hash, with a QR code that links to a public verify page.  
-
-**Agency view (impact story):** an `/verify/:id` page an NGO or insurer opens to check the claim against the ledger instead of a destroyed paper deed.
+1. **Proof of Existence on MST Testnet**
+   - High-throughput, low-fee smart contract transactions on the MST network create tamper-evident claim timestamps.
+2. **Trust-Weighted Multi-Party Attestation**
+   - Consensus requires weighted scores from diverse community actors:
+     - **Neighbor:** `+1` weight
+     - **Village Leader:** `+3` weight
+     - **Accredited NGO:** `+3` weight
+   - Claims transition automatically from `Pending` to **`Verified`** once reaching **Score ≥ 5**.
+3. **Automated Geospatial Overlap Detection**
+   - Backend compares candidate claim polygons against verified registries using coordinate intersection algorithms.
+   - Conflicting submissions automatically route to the **Dispute Resolver** for human arbitration.
+4. **Public QR Proof Certificate (`/verify/:id`)**
+   - Generates a cryptographically verifiable QR code linking directly to on-chain state, allowing emergency aid workers, relief agencies, and insurers to confirm land rights immediately.
+5. **Government Relief & Reimbursement**
+   - Relief events with a geofenced zone and a funded on-chain budget.
+   - Automatic eligibility from verified claims, damage assessment by accredited assessors, two-officer approval, and one-time release with a public audit trail.
+6. **Government Dashboard**
+   - Officers see eligible claims, budget remaining, and payout status, and can assess, approve, and release payouts.
+7. **Tamper-Evident Evidence in MongoDB Atlas**
+   - Photos and claim data live off-chain in Atlas. The verify page re-hashes the stored evidence and compares it to the on-chain `evidenceHash`.
 
 ---
 
-## 5. Implementation: Workflow Scripts (A — Complete)
+## ⚙️ Tech Stack
 
-All scripts are in `scripts/` and callable via npm:
+- **Smart Contracts:** Solidity `^0.8.0`, deployed on MST Testnet (`LandRegistry.sol`, `ReliefFund.sol`)
+- **Blockchain Client & SDK:** `@mstblockchain/mst-sdk`, `ethers.js` v6, BridgeKey Wallet
+- **Backend API:** Node.js, Express, `dotenv`, `fs-extra`, Turf.js (geospatial calculations and zone checks), `multer` (uploads)
+- **Database:** MongoDB Atlas (`mongodb` driver) for claims, images, reliefs, and payouts
+- **Frontend:** React, Leaflet Maps (interactive boundary drawing & GPS), HTML5, CSS3
 
-### Setup & Wallet
+---
+
+## 🔗 Network & Smart Contract Specifications
+
+- **Network:** MST Blockchain Testnet
+- **RPC URL:** `https://testnetrpc.mstblockchain.com`
+- **Smart Contracts:** `contracts/LandRegistry.sol`, `contracts/ReliefFund.sol` *(relief contract in progress)*
+- **Compiled Artifacts:** `build/LandRegistry.json`, `build/ReliefFund.json`
+
+### Smart Contract Methods (`LandRegistry.sol`)
+
+| Function | Signature | Description |
+|---|---|---|
+| `createClaim` | `(bytes32 ownerHash, bytes32 evidenceHash, uint32 latE6, uint32 lonE6)` | Initializes a land record on-chain and emits `ClaimCreated`. |
+| `attest` | `(uint256 claimId, uint8 role)` | Registers role-weighted signature and triggers status update. |
+| `dispute` | `(uint256 claimId)` | Flags a conflicting claim for manual mediation. |
+| `resolveDispute` | `(uint256 claimId, bool restore)` | Authorized admin/arbiter resolves disputed claims. |
+| `setRole` | `(address user, uint8 role)` | Admin only. Defines attester roles. |
+| `getClaim` | `(uint256 claimId)` | Gasless `view` method returning claim hashes, coordinates, score, and status. |
+
+### Smart Contract Methods (`ReliefFund.sol`, planned)
+
+`ReliefFund` reads claim status from `LandRegistry` and holds the relief budget in escrow.
+
+| Function | Signature | Description |
+|---|---|---|
+| `createRelief` | `(bytes32 zoneHash, uint256 maxPerClaim) payable` | Government declares a relief event and deposits its budget. Emits `ReliefCreated`. |
+| `fundRelief` | `(uint256 reliefId) payable` | Tops up a relief event's budget. |
+| `setOfficer` / `setAssessor` | `(address user, bool allowed)` | Admin only. Grants the government officer or assessor role. |
+| `assess` | `(uint256 claimId, uint256 reliefId, uint8 damageLevel, bytes32 damageEvidenceHash)` | Assessor records damage. Requires the claim to be `Verified`. |
+| `approvePayout` | `(uint256 claimId, uint256 reliefId, uint256 amount, address payable beneficiary)` | Officer approval. Two officers must submit the same amount and beneficiary. Amount must not exceed the cap or remaining budget. |
+| `release` | `(uint256 claimId, uint256 reliefId)` | Pays the beneficiary once. Reverts if the claim is `Disputed` or already paid. Emits `PayoutReleased`. |
+| `getPayout` | `(uint256 claimId, uint256 reliefId)` | View: payout status, amount, beneficiary, approvals. |
+
+Payout status values: `None`, `Assessed`, `Approved`, `Paid`.
+
+---
+
+## 🚀 Quickstart & Setup Guide
+
+### 1. Prerequisites
+- Node.js (v18.x or v20.x recommended)
+- Git
+- Funded MST Testnet account (via MST Faucet)
+- A free MongoDB Atlas cluster (M0), a database user, and a connection string
+
+### 2. Installation
 ```bash
-npm run wallet        # generateWallet.js — create/import wallet, save to .env
-npm run init          # init.js — verify signer identity, check block number
-npm run balance       # balance.js — confirm wallet is funded
+git clone https://github.com/prathamshetty18/teamharmonybms.git
+cd teamharmonybms
+npm install
 ```
 
-### Transactions
-```bash
-npm run send          # send.js — send 0.001 MST to BridgeKey recipient (test flow)
-```
-
-### Smart Contract Lifecycle
-```bash
-npm run compile       # compile.js — solc → build/LandRegistry.json (ABI + bytecode)
-npm run deploy        # deploy.js — deploy contract, fetch address, log to .env + SUBMISSION.md
-npm run demo          # interact.js — encode & call createClaim() on deployed contract
-```
-
-### Key Files Created by A
-
-#### `.env` (do NOT commit)
-```bash
-PRIVATE_KEY=0x...             # Signer's private key (funded wallet)
+### 3. Environment Configuration
+Create a `.env` file in the root directory (never commit this file):
+```env
 RPC_URL=https://testnetrpc.mstblockchain.com
-RECIPIENT=0x...               # BridgeKey public address (for testing send.js)
-CONTRACT_ADDRESS=0x...        # Auto-appended by deploy.js
+PRIVATE_KEY=0xYOUR_TESTNET_PRIVATE_KEY
+RECIPIENT=0xBRIDGEKEY_TEST_RECIPIENT_ADDRESS
+CONTRACT_ADDRESS=0xAUTO_POPULATED_AFTER_DEPLOY
+RELIEF_CONTRACT_ADDRESS=0xAUTO_POPULATED_AFTER_RELIEF_DEPLOY
+MONGO_URI=mongodb+srv://USER:PASSWORD@YOUR_CLUSTER.mongodb.net/
+PORT=5000
 ```
 
-#### `contracts/LandRegistry.sol`
-- **No constructor args** (simplified for hackathon).
-- **Functions:**
-  - `createClaim(bytes32 ownerHash, bytes32 evidenceHash, uint32 latE6, uint32 lonE6)` → emits `ClaimCreated` event.
-  - `attest(uint256 claimId, uint8 role)` → adds attestation, updates score, may auto-verify.
-  - `dispute(uint256 claimId)` → flags claim.
-  - `resolveDispute(uint256 claimId, bool restore)` → admin only, resolves flag.
-  - `setRole(address user, uint8 role)` → admin only, defines attester roles.
-  - `getClaim(uint256 id)` → returns full claim struct.
+### 4. Smart Contract Lifecycle Scripts
+```bash
+# 1. Generate or verify your wallet
+npm run wallet
 
-#### `build/LandRegistry.json`
-- Generated by `npm run compile`.
-- Contains ABI and bytecode for all downstream interactions.
+# 2. Check testnet connection and balance
+npm run balance
 
-#### `SUBMISSION.md`
-- Auto-updated after every deploy/interact.
-- Records: contract address, deploy tx hash, interaction tx hashes, timestamps.
-- **Final deliverable for judges.**
+# 3. Compile the Solidity contracts
+npm run compile
 
-#### `package.json` (updated with npm scripts)
-```json
-{
-  "scripts": {
-    "wallet": "node scripts/generateWallet.js",
-    "init": "node scripts/init.js",
-    "balance": "node scripts/balance.js",
-    "send": "node scripts/send.js",
-    "compile": "node scripts/compile.js",
-    "deploy": "node scripts/deploy.js",
-    "demo": "node scripts/interact.js"
-  },
-  "dependencies": {
-    "@mstblockchain/mst-sdk": "latest",
-    "dotenv": "^16.0.0",
-    "solc": "^0.8.0",
-    "fs-extra": "^11.0.0",
-    "ethers": "^6.0.0"
-  }
-}
+# 4. Deploy LandRegistry to MST Testnet (auto-updates .env and SUBMISSION.md)
+npm run deploy
+
+# 5. Run end-to-end claim interaction demo
+npm run demo
+
+# 6. (planned) Deploy ReliefFund, pointing at the deployed LandRegistry
+npm run deploy:relief
 ```
 
 ---
 
-## 6. Contract Call Interface (A built, B wraps)
+## 📡 REST API Reference
 
-A has proven that contract functions can be called via `ethers.Interface` + `sendTransaction`. B will wrap these into helper functions:
-
-```javascript
-// B's chain.js (wraps A's interaction pattern)
-
-async function createClaim({ ownerHash, evidenceHash, latE6, lonE6 }) {
-  // Encode function call
-  // Sign and send via signer.sendTransaction
-  // Wait for confirmation
-  // Return { claimId, txHash }
-}
-
-async function attest(claimId, role) {
-  // Call contract.attest()
-  // Return { txHash, newScore, newStatus }
-}
-
-async function dispute(claimId) {
-  // Call contract.dispute()
-  // Return { txHash }
-}
-
-async function getClaim(claimId) {
-  // Call contract.getClaim() (view, no gas)
-  // Return { ownerHash, evidenceHash, latE6, lonE6, score, status }
-}
-```
+| Method | Endpoint | Description | On-Chain Interaction |
+|---|---|---|---|
+| `POST` | `/claims` | Submit a new parcel claim with boundary, photos & owner hash | `createClaim()` |
+| `GET` | `/claims` | List all registered parcels (for Leaflet map markers) | Off-chain DB / Cache |
+| `GET` | `/claims/:id` | Fetch parcel details, attestation history, & state | `getClaim()` |
+| `POST` | `/claims/:id/attest` | Submit community attestation (`{ role, name }`) | `attest()` |
+| `POST` | `/claims/:id/dispute` | Flag parcel boundary dispute (`{ reason }`) | `dispute()` |
+| `POST` | `/claims/:id/resolve` | Admin resolves a dispute | `resolveDispute()` |
+| `GET` | `/verify/:id` | Public verification view linked via QR certificate, including payout status | `getClaim()`, `getPayout()` |
+| `POST` | `/reliefs` | Government declares a relief event (zone, rate, cap, budget) | `createRelief()` |
+| `GET` | `/reliefs` | List relief events | Off-chain DB |
+| `GET` | `/reliefs/:id/eligible` | Claims that are Verified, undisputed, and inside the zone, with computed amounts | `getClaim()` |
+| `POST` | `/claims/:id/assess` | Assessor records damage (`{ reliefId, damageLevel }` + photos) | `assess()` |
+| `POST` | `/claims/:id/approve-payout` | Officer approves (`{ reliefId }`) | `approvePayout()` |
+| `POST` | `/claims/:id/release-payout` | Releases an approved payout (`{ reliefId }`) | `release()` |
+| `GET` | `/claims/:id/payout` | Payout status, amount, and tx hash for a claim | `getPayout()` |
 
 ---
 
-## 7. REST API Skeleton (B to build, C to call)
+## 👥 Team Harmony (BMSCE 2026)
 
-| Endpoint | Purpose | Calls chain.js |
+| Member | Role | Key Responsibilities |
 |---|---|---|
-| `POST /claims` | Create claim (owner, lat/lon, polygon, photo). Runs overlap check, calls `createClaim` | ✅ Yes |
-| `GET /claims` | List all claims with status (for the map) | View only |
-| `GET /claims/:id` | Claim detail plus on-chain data | ✅ getClaim |
-| `POST /claims/:id/attest` | Body: `{ role, name }`. Calls `attest` | ✅ Yes |
-| `POST /claims/:id/dispute` | Body: `{ reason }` | ✅ Yes |
-| `POST /claims/:id/resolve` | Admin only | ✅ Yes |
-| `GET /verify/:id` | Public verify data (what the QR links to) | ✅ getClaim |
+| **Srujan** | Blockchain Lead | Smart contracts (`LandRegistry.sol`, `ReliefFund.sol`), deployment, MST SDK integration, tx verification |
+| **Team Member B** | Backend / API Lead | Express server, MongoDB Atlas, polygon overlap algorithm, relief eligibility engine, REST endpoints, `chain.js` contract layer |
+| **Team Member C** | Frontend Lead | Leaflet map interface, claim creation workflow, attestation UI, QR certificate view, government dashboard, payout status badge |
+| **Team Member D** | Product & Demo Lead | Problem statement, demo script, seeded relief event, verification checklist, documentation |
 
 ---
 
-## 8. Frontend Requirements (C to build, calls B's API)
+## 📄 License & Hackathon Deliverables
 
-### Pages
-1. **`/` (Home)** — Create claim form: owner name, GPS (map picker), polygon (draw on map), photo upload.
-2. **`/claims` (Map View)** — Leaflet map with all claims. Color by status (Pending=yellow, Verified=green, Disputed=red). Click marker → detail panel.
-3. **`/claims/:id` (Claim Detail)** — Status, attestations, score. Buttons: [Attest as Neighbor] [Attest as Leader] [Attest as NGO] [Dispute].
-4. **`/claims/:id/dispute` (Dispute Form)** — Reason text, flag to admin.
-5. **`/claims/:id/certificate` (QR Certificate)** — Show claim ID, status, contract address, deploy tx hash, create tx hash. QR links to `/verify/:id`.
-6. **`/verify/:id` (Public Verify)** — Shows read-only claim + on-chain proof. For aid agencies / insurance.
-
-### Overlap Detection Alert
-When a new polygon overlaps an existing one (detected server-side in `/claims` POST), return:
-```json
-{
-  "warning": "Overlaps existing claim #42",
-  "action": "Mark as disputed?"
-}
-```
-
----
-
-## 9. Timeline (24 hours) — Updated Status
-
-| Hours | A: Blockchain | B: Backend | C: Frontend | D: Docs / demo |
-|---|---|---|---|---|
-| **0-1** | ✅ **DONE:** Wallet, faucet, init, balance, send test | Create Express skeleton | Create app skeleton | Create GitHub repo, README skeleton |
-| **1-2** | ✅ **DONE:** Mock chain.js ready, all script templates | Build endpoints against mock | Build claim form | Draft problem statement |
-| **2-5** | ✅ **DONE:** Compile + deploy LandRegistry.sol. Contract live on testnet. | Add DB, hashing helpers, overlap detection | Map view with Leaflet | Write real-world gap (Haiti 2010, Indian floods) |
-| **5-8** | ✅ **DONE:** `interact.js` proves contract calls work. All tx hashes in SUBMISSION.md. | Wire API to real chain.js (in `/scripts`) | Attestation screen, status badges | Seed demo data (5-6 sample parcels) |
-| **8-12** | 🔄 **NOW:** Polish error handling, retry logic. BridgeKey connect button (optional, can use env key) | Overlap flagging to dispute flow. Test with A's contract. | Dispute UI, overlap warning on map | Draft system design and requirements PDF |
-| **12-16** | 🔄 **Integration testing with whole team.** Fix any chain bugs from B/C's calls | Fix API bugs from frontend calls | QR certificate and `/verify/:id` page | Draft pitch deck (Problem, Solution, Demo, Impact) |
-| **16-20** | ✅ Contract frozen. Final review of all hashes. | Freeze API | Polish UI, QR rendering | Finish PDF, README with MST details, rehearse demo |
-| **20-22** | **Backup:** pre-create demo claims if testnet is slow | Bug fixes only | Bug fixes only | Record backup demo video |
-| **22-24** | **Final check:** All hashes in SUBMISSION.md. .env not committed. | Push | Push | Submit, present |
-
-**Current Status:** A is **complete with all blockchain fundamentals.** B and C can now integrate and test in parallel.
-
----
-
-## 10. Submission Checklist (Track Requirements)
-
-- [x] Wallet generated and funded (**A complete**)
-- [x] Connected to MST Testnet via RPC (**A complete**)
-- [x] Sent native MST transaction (**A complete**)
-- [x] Compiled LandRegistry.sol (**A complete**)
-- [x] **Contract deployed on MST Testnet** ✅ (**A complete**)
-- [x] Contract address recorded in `.env` and `SUBMISSION.md` (**A complete**)
-- [x] **Deploy tx hash recorded** (**A complete**)
-- [x] Contract functions callable via encoded transactions (**A complete, proven in interact.js**)
-- [ ] Backend API built and wired to chain.js (B in progress)
-- [ ] Frontend map, forms, attestation UI (C in progress)
-- [ ] BridgeKey wallet integration shown (optional but recommended)
-- [ ] Working app or demo link (B + C to deliver)
-- [ ] Public GitHub repo with contracts, frontend, backend, README with MST details (RPC, network, address, tx hashes) (**D to finalize**)
-- [ ] No private keys committed (`.env` in `.gitignore` verified) ✅
-- [ ] PDF: problem statement, real-world gap, system design, requirements (**D to deliver**)
-
----
-
-## 11. Known Implementation Details
-
-### Wallet & Funding
-- Wallet generated via `generateWallet.js` → MST Testnet faucet (manual or auto).
-- Minimum balance: ~0.01 MST for deploy + multiple contract calls.
-- Private key stored in `.env`, **never committed to Git.**
-
-### Contract Deployment
-- ABI + bytecode extracted by `compile.js` into `build/LandRegistry.json`.
-- Deployment via `deploy.js` → `client.signer.deploy()` → waits for confirmation → logs contract address.
-- Deploy tx hash recorded and added to SUBMISSION.md and `.env`.
-
-### Contract Calls
-- A proved via `interact.js` that `ethers.Interface` can encode contract function calls.
-- Data passed to `client.signer.sendTransaction()` for signing and broadcast.
-- Each call returns a tx hash (on-chain proof).
-
-### Versioning & Git
-- `.env` in `.gitignore` (credentials safe).
-- `build/` generated, should be in `.gitignore` (regenerate on `npm run compile`).
-- `SUBMISSION.md` committed (judges need to see final tx hashes).
-- `contracts/` and `scripts/` committed.
-
----
-
-## 12. Integration Points (B & C reference)
-
-### B (Backend) receives from A:
-```
-scripts/deploy.js        → contract address
-scripts/interact.js      → proven contract call method
-build/LandRegistry.json  → ABI + bytecode for function encoding
-.env template            → RPC_URL, PRIVATE_KEY structure
-```
-
-### B builds:
-```
-Express server + REST API
-Database (claims, attestations, parcels)
-Overlap detection logic
-chain.js wrapper (calls A's scripts or embeds the logic directly)
-```
-
-### C (Frontend) receives from B:
-```
-REST API endpoints (POST /claims, GET /claims/:id, POST /claims/:id/attest, etc.)
-Claim objects with on-chain data (ownerHash, evidenceHash, score, status, txHash)
-```
-
-### C builds:
-```
-Claim form + Leaflet map
-Attestation UI
-Dispute flow
-QR certificate + verify page
-```
-
----
-
-## 13. Stretch Ideas (if ahead of schedule)
-
-- Per-attester wallets (each neighbor/leader signs their own `attest` from BridgeKey).
-- Volunteer credential verification during a crisis (prove a stranger is a licensed nurse or engineer).
-- SMS or WhatsApp claim entry for low-connectivity areas.
-- Insurance or aid payout simulation that references the ledger.
-- Multi-language UI (English + local language).
-
----
-
-## 14. Demo Script (3 minutes)
-
-1. **Story:** a family loses its deed in a flood. Nobody can prove the land is theirs.
-2. Open the map and create the claim (photo, GPS, boundary drawn).
-3. Two neighbors, a village leader and an NGO worker attest. The score climbs and the status changes to **Verified**.
-4. Show the **contract address and tx hashes on MST Testnet** (via SUBMISSION.md or block explorer).
-5. A second person submits an overlapping claim. The map flags it and it goes to **dispute** for human adjudication.
-6. An aid agency opens the QR certificate and verifies the claim in seconds (the `/verify/:id` page).
-7. Close: "Blockchain doesn't decide who owns the land. It preserves community consensus so no one is left out."
-
----
-
-## 15. Risks & Mitigations
-
-| Risk | Mitigation | Status |
-|---|---|---|
-| Unknown SDK contract-call method | A investigated and proved it works via `ethers.Interface` + `sendTransaction` | ✅ **Resolved** |
-| Testnet slow or down at demo time | Pre-create claims (hour 20-22), backup video | Plan in place |
-| Faucet funds run out | Keep sends tiny (0.001 MST), batch operations | A monitored |
-| Laptop overheating | Close extra tabs, one dev server at a time | Team aware |
-| Private key leaked | `.env` in `.gitignore`, check before every push | ✅ **Verified** |
-| B and C blocked waiting for A | A shipped working scripts early; B and C can mock/test in parallel | ✅ **Unblocked** |
-
----
-
-## 16. What's Next (Immediate Actions)
-
-1. **B:** Clone the scripts, understand `chain.js` wrapper pattern. Start building Express API with mock data first.
-2. **C:** Clone the scripts, create React/HTML app scaffold. Start with claim form + mock API response.
-3. **A:** Monitor contract on testnet. Fix any unforeseen contract call issues. Prepare BridgeKey integration snippet.
-4. **D:** Create GitHub repo with this design.md. Draft problem statement and system design PDF.
-
----
-
-**Last Updated:** 28 Sept 2026, after contract deployment & proof of contract calls.  
-**Contract Address:** See `SUBMISSION.md` and `.env`.  
-**Next Review:** After B completes REST API (hour 8-10).
+- **Submission Log:** See `SUBMISSION.md` for live contract addresses, deployment transaction hashes, and proof-of-claim and payout execution receipts.
+- **License:** MIT License. Built for social impact and disaster resilience.
