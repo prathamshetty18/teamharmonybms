@@ -1,0 +1,14 @@
+{
+  "name": "teamharmonybms",
+  "version": "1.0.0",
+  "description": "Post-disaster land registry plus relief payouts on MST Blockchain",
+  "main": "chain.js",
+  "scripts": {
+    "test:chain": "node scripts/testChain.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "ethers": "^6.13.2",
+    "express": "^4.21.0"
+  }
+}

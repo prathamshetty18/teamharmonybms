@@ -1,0 +1,118 @@
+{
+  "contractName": "LandRegistry",
+  "abi": [
+    {
+      "type": "function",
+      "name": "createClaim",
+      "inputs": [
+        { "name": "ownerHash", "type": "bytes32" },
+        { "name": "evidenceHash", "type": "bytes32" },
+        { "name": "latE6", "type": "int32" },
+        { "name": "lonE6", "type": "int32" }
+      ],
+      "outputs": [
+        { "name": "claimId", "type": "uint256" }
+      ],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "attest",
+      "inputs": [
+        { "name": "claimId", "type": "uint256" },
+        { "name": "role", "type": "uint8" }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "dispute",
+      "inputs": [
+        { "name": "claimId", "type": "uint256" }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "resolveDispute",
+      "inputs": [
+        { "name": "claimId", "type": "uint256" },
+        { "name": "restore", "type": "bool" }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "setRole",
+      "inputs": [
+        { "name": "user", "type": "address" },
+        { "name": "role", "type": "uint8" }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "getClaim",
+      "inputs": [
+        { "name": "claimId", "type": "uint256" }
+      ],
+      "outputs": [
+        { "name": "status", "type": "uint8" },
+        { "name": "score", "type": "uint256" },
+        { "name": "ownerHash", "type": "bytes32" },
+        { "name": "evidenceHash", "type": "bytes32" },
+        { "name": "latE6", "type": "int32" },
+        { "name": "lonE6", "type": "int32" }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "event",
+      "name": "ClaimCreated",
+      "inputs": [
+        { "name": "claimId", "type": "uint256", "indexed": true },
+        { "name": "claimant", "type": "address", "indexed": true },
+        { "name": "ownerHash", "type": "bytes32", "indexed": false },
+        { "name": "evidenceHash", "type": "bytes32", "indexed": false },
+        { "name": "latE6", "type": "int32", "indexed": false },
+        { "name": "lonE6", "type": "int32", "indexed": false }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "ClaimAttested",
+      "inputs": [
+        { "name": "claimId", "type": "uint256", "indexed": true },
+        { "name": "attester", "type": "address", "indexed": true },
+        { "name": "role", "type": "uint8", "indexed": false },
+        { "name": "newScore", "type": "uint256", "indexed": false },
+        { "name": "newStatus", "type": "uint8", "indexed": false }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "ClaimDisputed",
+      "inputs": [
+        { "name": "claimId", "type": "uint256", "indexed": true },
+        { "name": "reporter", "type": "address", "indexed": true }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "DisputeResolved",
+      "inputs": [
+        { "name": "claimId", "type": "uint256", "indexed": true },
+        { "name": "newStatus", "type": "uint8", "indexed": false },
+        { "name": "round", "type": "uint256", "indexed": false }
+      ],
+      "anonymous": false
+    }
+  ]
+}

@@ -1,0 +1,161 @@
+{
+  "contractName": "ReliefFund",
+  "abi": [
+    {
+      "type": "function",
+      "name": "createRelief",
+      "inputs": [
+        { "name": "zoneHash", "type": "bytes32" },
+        { "name": "maxPerClaim", "type": "uint256" },
+        { "name": "budget", "type": "uint256" },
+        { "name": "expiresAt", "type": "uint256" }
+      ],
+      "outputs": [
+        { "name": "reliefId", "type": "uint256" }
+      ],
+      "stateMutability": "payable"
+    },
+    {
+      "type": "function",
+      "name": "fundRelief",
+      "inputs": [
+        { "name": "reliefId", "type": "uint256" }
+      ],
+      "outputs": [],
+      "stateMutability": "payable"
+    },
+    {
+      "type": "function",
+      "name": "setOfficer",
+      "inputs": [
+        { "name": "user", "type": "address" },
+        { "name": "allowed", "type": "bool" }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "setAssessor",
+      "inputs": [
+        { "name": "user", "type": "address" },
+        { "name": "allowed", "type": "bool" }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "assess",
+      "inputs": [
+        { "name": "claimId", "type": "uint256" },
+        { "name": "reliefId", "type": "uint256" },
+        { "name": "damageLevel", "type": "uint8" },
+        { "name": "damageEvidenceHash", "type": "bytes32" }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "approvePayout",
+      "inputs": [
+        { "name": "claimId", "type": "uint256" },
+        { "name": "reliefId", "type": "uint256" },
+        { "name": "amount", "type": "uint256" },
+        { "name": "beneficiary", "type": "address" }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "release",
+      "inputs": [
+        { "name": "claimId", "type": "uint256" },
+        { "name": "reliefId", "type": "uint256" }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "getPayout",
+      "inputs": [
+        { "name": "claimId", "type": "uint256" },
+        { "name": "reliefId", "type": "uint256" }
+      ],
+      "outputs": [
+        { "name": "status", "type": "uint8" },
+        { "name": "amount", "type": "uint256" },
+        { "name": "beneficiary", "type": "address" },
+        { "name": "approvals", "type": "uint256" }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "event",
+      "name": "ReliefCreated",
+      "inputs": [
+        { "name": "reliefId", "type": "uint256", "indexed": true },
+        { "name": "zoneHash", "type": "bytes32", "indexed": false },
+        { "name": "budget", "type": "uint256", "indexed": false },
+        { "name": "maxPerClaim", "type": "uint256", "indexed": false },
+        { "name": "expiresAt", "type": "uint256", "indexed": false }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "ReliefFunded",
+      "inputs": [
+        { "name": "reliefId", "type": "uint256", "indexed": true },
+        { "name": "amount", "type": "uint256", "indexed": false }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "ClaimAssessed",
+      "inputs": [
+        { "name": "claimId", "type": "uint256", "indexed": true },
+        { "name": "reliefId", "type": "uint256", "indexed": true },
+        { "name": "damageLevel", "type": "uint8", "indexed": false },
+        { "name": "evidenceHash", "type": "bytes32", "indexed": false }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "PayoutApproved",
+      "inputs": [
+        { "name": "claimId", "type": "uint256", "indexed": true },
+        { "name": "reliefId", "type": "uint256", "indexed": true },
+        { "name": "amount", "type": "uint256", "indexed": false },
+        { "name": "beneficiary", "type": "address", "indexed": true },
+        { "name": "officer", "type": "address", "indexed": false }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "ApprovalsReset",
+      "inputs": [
+        { "name": "claimId", "type": "uint256", "indexed": true },
+        { "name": "reliefId", "type": "uint256", "indexed": true }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "PayoutReleased",
+      "inputs": [
+        { "name": "claimId", "type": "uint256", "indexed": true },
+        { "name": "reliefId", "type": "uint256", "indexed": true },
+        { "name": "amount", "type": "uint256", "indexed": false },
+        { "name": "beneficiary", "type": "address", "indexed": true }
+      ],
+      "anonymous": false
+    }
+  ]
+}
