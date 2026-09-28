@@ -8,11 +8,14 @@ import DisasterReliefView from './components/DisasterReliefView';
 import LandReportModal from './components/LandReportModal';
 import QRCertificateModal from './components/QRCertificateModal';
 import QRScannerModal from './components/QRScannerModal';
+import AuthModal from './components/AuthModal';
 import PublicVerify from './pages/PublicVerify';
 import { api } from './services/api';
+import { authService } from './services/authService';
 import { INITIAL_NOTIFICATIONS } from './data/mockData';
 import NotificationStack from './components/NotificationStack';
 import './styles/dashboard.css';
+import './styles/authModal.css';
 
 export default function App() {
   const [activePortal, setActivePortal] = useState('landing'); // 'landing', 'farmer', 'ground', 'government', 'disaster'
@@ -20,6 +23,10 @@ export default function App() {
   const [selectedParcel, setSelectedParcel] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
+
+  // Auth state
+  const [currentUser, setCurrentUser] = useState(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
   // Modals state
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
@@ -32,19 +39,76 @@ export default function App() {
   const isVerifyRoute = pathParts[1] === 'verify' && pathParts[2];
   const verifyClaimId = isVerifyRoute ? pathParts[2] : null;
 
+  // Initialize data and user session
   useEffect(() => {
-    async function loadData() {
+    async function init() {
+      // 1. Check existing authenticated session
+      const storedUser = authService.getStoredUser();
+      if (storedUser) {
+        setCurrentUser(storedUser);
+        // Verify with backend
+        try {
+          const freshUser = await authService.getCurrentUser();
+          if (freshUser) {
+            setCurrentUser(freshUser);
+          }
+        } catch {
+          // offline or server restarting
+        }
+      }
+
+      // 2. Load parcel data
       const data = await api.getParcels();
       setParcels(data);
       if (data.length > 0 && !selectedParcel) {
         setSelectedParcel(data[0]);
       }
     }
-    loadData();
+    init();
   }, []);
 
   const handleDismissNotification = (id) => {
     setNotifications(prev => prev.filter(n => n.id !== id));
+  };
+
+  const handleAuthSuccess = (user) => {
+    setCurrentUser(user);
+
+    // Route automatically based on user's authorized role
+    if (user.role === 'CITIZEN') {
+      setActivePortal('farmer');
+    } else if (user.role === 'VERIFICATION_OFFICER') {
+      setActivePortal('ground');
+    } else if (user.role === 'GOVERNMENT_OFFICER' || user.role === 'ADMIN') {
+      setActivePortal('government');
+    }
+
+    setNotifications(prev => [
+      {
+        id: Date.now(),
+        type: 'success',
+        title: `✓ Authenticated as ${user.role}`,
+        body: `Welcome, ${user.full_name || user.name || user.username}. Connected to BhoomiSetu backend.`,
+        time: 'Just now'
+      },
+      ...prev
+    ]);
+  };
+
+  const handleLogout = async () => {
+    await authService.logout();
+    setCurrentUser(null);
+    setActivePortal('landing');
+    setNotifications(prev => [
+      {
+        id: Date.now(),
+        type: 'success',
+        title: 'Logged Out',
+        body: 'You have been successfully signed out of BhoomiSetu.',
+        time: 'Just now'
+      },
+      ...prev
+    ]);
   };
 
   const handleSearchSubmit = async (e) => {
@@ -162,7 +226,7 @@ export default function App() {
 
   return (
     <div className="app-layout">
-      {/* Official Government Navbar connecting the 3 portals */}
+      {/* Official Government Navbar connecting the portals & Auth */}
       <Navbar 
         activePortal={activePortal}
         setActivePortal={setActivePortal}
@@ -170,6 +234,9 @@ export default function App() {
         setSearchQuery={setSearchQuery}
         onSearchSubmit={handleSearchSubmit}
         openScanner={() => setIsScannerModalOpen(true)}
+        currentUser={currentUser}
+        onOpenAuthModal={() => setIsAuthModalOpen(true)}
+        onLogout={handleLogout}
       />
 
       {/* Main Active View Based on Selected Portal */}
@@ -248,6 +315,12 @@ export default function App() {
       />
 
       {/* Modals */}
+      <AuthModal 
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onAuthSuccess={handleAuthSuccess}
+      />
+
       <LandReportModal 
         isOpen={isReportModalOpen}
         onClose={() => setIsReportModalOpen(false)}

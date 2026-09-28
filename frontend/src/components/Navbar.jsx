@@ -7,11 +7,23 @@ import {
   QrCode, 
   ShieldCheck, 
   Search,
-  FileCheck2,
-  Home
+  Home,
+  User,
+  LogOut,
+  LogIn
 } from 'lucide-react';
 
-export default function Navbar({ activePortal, setActivePortal, searchQuery, setSearchQuery, onSearchSubmit, openScanner }) {
+export default function Navbar({ 
+  activePortal, 
+  setActivePortal, 
+  searchQuery, 
+  setSearchQuery, 
+  onSearchSubmit, 
+  openScanner,
+  currentUser,
+  onOpenAuthModal,
+  onLogout
+}) {
   const portals = [
     { id: 'landing', label: 'Home', icon: Home },
     { id: 'farmer', label: 'Farmer Portal', icon: UserCheck },
@@ -19,6 +31,25 @@ export default function Navbar({ activePortal, setActivePortal, searchQuery, set
     { id: 'government', label: 'Government Portal', icon: Building2 },
     { id: 'disaster', label: 'Disaster Relief', icon: CloudRain }
   ];
+
+  const getRoleLabel = (role) => {
+    switch (role) {
+      case 'CITIZEN': return 'Citizen / Farmer';
+      case 'VERIFICATION_OFFICER': return 'Verification Officer';
+      case 'GOVERNMENT_OFFICER': return 'Govt Officer';
+      case 'ADMIN': return 'Admin';
+      default: return role || 'User';
+    }
+  };
+
+  const getInitials = (name) => {
+    if (!name) return 'U';
+    const parts = name.trim().split(' ');
+    if (parts.length > 1) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return name.slice(0, 2).toUpperCase();
+  };
 
   return (
     <>
@@ -29,7 +60,7 @@ export default function Navbar({ activePortal, setActivePortal, searchQuery, set
           <span>Government of India • Ministry of Land Resources & Disaster Management</span>
           <span className="gov-emblem-badge">BHOOMISETU</span>
         </div>
-        <div style={{ display: 'flex', gap: '16px' }}>
+        <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
           <span>English | हिंदी | ಕನ್ನಡ | മലയാളം</span>
           <span>Helpdesk: 1800-180-1551</span>
         </div>
@@ -47,7 +78,7 @@ export default function Navbar({ activePortal, setActivePortal, searchQuery, set
           </div>
         </div>
 
-        {/* 3 Interconnected Portal Links */}
+        {/* 5 Interconnected Portal Links */}
         <nav className="portal-nav-links">
           {portals.map(p => {
             const Icon = p.icon;
@@ -65,7 +96,7 @@ export default function Navbar({ activePortal, setActivePortal, searchQuery, set
           })}
         </nav>
 
-        {/* Right Search & QR Scanner Gate */}
+        {/* Right Search, QR Scanner & Authentication Action */}
         <div className="nav-actions-group">
           <form onSubmit={onSearchSubmit} className="search-pill-box">
             <Search size={14} color="var(--text-placeholder)" />
@@ -86,6 +117,40 @@ export default function Navbar({ activePortal, setActivePortal, searchQuery, set
             <QrCode size={16} />
             <span>Scan Doc / QR</span>
           </button>
+
+          {/* User Session Pill or Login Trigger */}
+          {currentUser ? (
+            <div className="nav-user-pill">
+              <div className="nav-user-avatar">
+                {getInitials(currentUser.full_name || currentUser.name || currentUser.username)}
+              </div>
+              <div className="nav-user-info">
+                <span className="nav-user-name">
+                  {currentUser.full_name || currentUser.name || currentUser.username}
+                </span>
+                <span className="nav-user-role-badge">
+                  {getRoleLabel(currentUser.role)}
+                </span>
+              </div>
+              <button 
+                className="nav-logout-btn" 
+                onClick={onLogout}
+                title="Log out of session"
+                aria-label="Log out"
+              >
+                <LogOut size={15} />
+              </button>
+            </div>
+          ) : (
+            <button 
+              className="nav-login-btn" 
+              onClick={onOpenAuthModal}
+              title="Sign in to BhoomiSetu"
+            >
+              <LogIn size={15} />
+              <span>Sign In / Register</span>
+            </button>
+          )}
         </div>
       </header>
     </>
