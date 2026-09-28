@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "test": "node eligibility.test.js && node overlap.test.js && node phase2.test.js && node relief.test.js && node test.js",
+    "test:integration": "node ../scripts/integrationTest.js",
     "seed": "node seed.js"
   },
   "keywords": [],
@@ -16,6 +17,7 @@
     "@turf/turf": "^7.4.0",
     "cors": "^2.8.6",
     "dotenv": "^18.0.4",
+    "ethers": "^6.17.0",
     "express": "^5.2.1",
     "mongodb": "^7.6.0",
     "multer": "^2.4.0"

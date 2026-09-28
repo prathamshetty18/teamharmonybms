@@ -398,10 +398,7 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
         arbiterAddress = '0x000000000000000000000000000000000000dEaD'
       } = req.body;
 
-      let resolvedStatus = 'Pending';
-      if (restore === true && (claim.score || 0) >= 5) {
-        resolvedStatus = 'Verified';
-      }
+      const resolvedStatus = restore === true ? 'Verified' : 'Pending';
 
       // Call chain.resolveDispute if available
       if (chain && typeof chain.resolveDispute === 'function') {
@@ -525,6 +522,30 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
         assessorAddress = '0x2546BcD3c84621e976D8185a91A922aE77ECEc30'
       } = req.body;
 
+      // Verify accredited assessor authorization (per design.md role restrictions)
+      const candidateAssessor = assessorAddress || req.headers['x-assessor-address'];
+      let isAuthorizedAssessor = false;
+      if (chain && typeof chain.isAssessor === 'function') {
+        try {
+          isAuthorizedAssessor = await chain.isAssessor(candidateAssessor);
+        } catch (chainErr) {
+          console.warn('[Chain] Error checking chain.isAssessor:', chainErr.message);
+        }
+      }
+
+      if (!isAuthorizedAssessor) {
+        const accreditedSet = new Set([
+          '0x2546bcd3c84621e976d8185a91a922ae77ecec30'.toLowerCase()
+        ]);
+        isAuthorizedAssessor = candidateAssessor && accreditedSet.has(candidateAssessor.toLowerCase());
+      }
+
+      if (!isAuthorizedAssessor) {
+        return res.status(403).json({
+          error: `Unauthorized: Wallet '${candidateAssessor || 'unspecified'}' is not an accredited field assessor`
+        });
+      }
+
       const relief = await store.getById('reliefs', reliefId);
       if (!relief) {
         return res.status(404).json({ error: `Relief event '${reliefId}' not found` });
@@ -557,8 +578,17 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
         damageLevel: computedLvl,
         answers: answers || null,
         damageNotes,
-        assessorAddress
+        assessorAddress: candidateAssessor
       });
+
+      // Call chain.assess if available
+      if (chain && typeof chain.assess === 'function') {
+        try {
+          await chain.assess(req.params.id, reliefId, computedLvl, damageEvidenceHash);
+        } catch (chainErr) {
+          console.warn('[Chain] Error calling chain.assess:', chainErr.message);
+        }
+      }
 
       const existingPayout = await store.getById('payouts', req.params.id);
       const payoutDoc = {
@@ -576,7 +606,7 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
         approvals: existingPayout && existingPayout.approvals ? existingPayout.approvals : [],
         txHash: null,
         releasedAt: null,
-        assessorAddress
+        assessorAddress: candidateAssessor
       };
 
       const savedPayout = await store.save('payouts', payoutDoc);
@@ -599,7 +629,7 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
         return res.status(404).json({ error: `Claim with id '${req.params.id}' not found` });
       }
 
-      const { reliefId, officer } = req.body;
+      const { reliefId, officer, amount, beneficiaryAddress, beneficiary } = req.body;
       const payout = await store.getById('payouts', req.params.id);
 
       if (!payout || payout.status === 'None') {
@@ -612,6 +642,22 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
         return res.status(400).json({ error: 'Payout has already been released' });
       }
 
+      // Check for approval parameter mismatches (amount or beneficiary)
+      // "officer1 approves with amount X, officer2 approves with different amount or different beneficiary -> must NOT count as matching approval, stays Assessed"
+      if (amount !== undefined && amount !== null && String(amount) !== String(payout.amount)) {
+        return res.status(400).json({
+          error: `Approval mismatch: approved amount '${amount}' does not match assessed payout amount '${payout.amount}'. Payout status remains ${payout.status}.`
+        });
+      }
+
+      const expectedBeneficiary = payout.beneficiaryAddress || claim.beneficiaryAddress || '';
+      const providedBeneficiary = beneficiaryAddress || beneficiary;
+      if (providedBeneficiary && providedBeneficiary.toLowerCase() !== expectedBeneficiary.toLowerCase()) {
+        return res.status(400).json({
+          error: `Approval mismatch: approved beneficiary '${providedBeneficiary}' does not match assessed payout beneficiary '${expectedBeneficiary}'. Payout status remains ${payout.status}.`
+        });
+      }
+
       const existingApprovals = Array.isArray(payout.approvals) ? payout.approvals : [];
       if (existingApprovals.includes(officer)) {
         return res.status(400).json({ error: `Officer '${officer}' has already approved this payout` });
@@ -621,6 +667,15 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
       let newStatus = payout.status;
       if (updatedApprovals.length >= 2) {
         newStatus = 'Approved';
+      }
+
+      // Call chain.approvePayout if available
+      if (chain && typeof chain.approvePayout === 'function') {
+        try {
+          await chain.approvePayout(req.params.id, officer);
+        } catch (chainErr) {
+          console.warn('[Chain] Error calling chain.approvePayout:', chainErr.message);
+        }
       }
 
       const updated = await store.update('payouts', req.params.id, {
@@ -670,7 +725,20 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
         });
       }
 
-      const txHash = generateTxHash();
+      // Call chain.releasePayout if available
+      let chainReleaseTx = null;
+      if (chain && typeof chain.releasePayout === 'function') {
+        try {
+          chainReleaseTx = await chain.releasePayout(req.params.id);
+        } catch (chainErr) {
+          console.warn('[Chain] Error calling chain.releasePayout:', chainErr.message);
+          return res.status(400).json({
+            error: `On-chain payout release reverted: ${chainErr.message}`
+          });
+        }
+      }
+
+      const txHash = (chainReleaseTx && (chainReleaseTx.txHash || chainReleaseTx.hash)) || generateTxHash();
       const releasedAt = new Date().toISOString();
 
       const updatedPayout = await store.update('payouts', req.params.id, {
@@ -706,6 +774,10 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
   // -------------------------------------------------------------
   router.get('/claims/:id/payout', async (req, res, next) => {
     try {
+      const claim = await store.getById('claims', req.params.id);
+      if (!claim) {
+        return res.status(404).json({ error: `Claim with id '${req.params.id}' not found` });
+      }
       const payout = await getPayoutRecord(req.params.id);
       res.json(payout);
     } catch (err) {

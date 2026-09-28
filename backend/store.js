@@ -277,6 +277,13 @@ const memoryStore = {
   payouts: new Map(initialPayouts.map(p => [String(p.claimId), { ...p }]))
 };
 
+function getMemStore(collectionName) {
+  if (!memoryStore[collectionName]) {
+    memoryStore[collectionName] = new Map();
+  }
+  return memoryStore[collectionName];
+}
+
 /**
  * Creates store methods for a collection.
  * Primary ID for claims is on-chain claimId.
@@ -293,7 +300,8 @@ function createStore(collectionName, idField) {
           console.warn(`[Store] Error querying MongoDB ${collectionName}:`, e.message);
         }
       }
-      return Array.from(memoryStore[collectionName].values()).filter(doc => {
+      const mem = getMemStore(collectionName);
+      return Array.from(mem.values()).filter(doc => {
         for (const key of Object.keys(filter)) {
           if (doc[key] !== filter[key]) return false;
         }
@@ -315,7 +323,7 @@ function createStore(collectionName, idField) {
           console.warn(`[Store] Error querying ${collectionName} by ID in MongoDB:`, e.message);
         }
       }
-      return memoryStore[collectionName].get(strId) || null;
+      return getMemStore(collectionName).get(strId) || null;
     },
 
     async save(doc) {
@@ -328,7 +336,7 @@ function createStore(collectionName, idField) {
         updatedAt: now
       };
 
-      memoryStore[collectionName].set(id, record);
+      getMemStore(collectionName).set(id, record);
 
       const col = getCollection(collectionName);
       if (isDbConnected() && col) {
@@ -348,7 +356,7 @@ function createStore(collectionName, idField) {
 
     async update(id, updates) {
       const strId = String(id);
-      const existing = memoryStore[collectionName].get(strId) || (await this.getById(strId));
+      const existing = getMemStore(collectionName).get(strId) || (await this.getById(strId));
       if (!existing) {
         return null;
       }
@@ -360,7 +368,7 @@ function createStore(collectionName, idField) {
         updatedAt: new Date().toISOString()
       };
 
-      memoryStore[collectionName].set(strId, updated);
+      getMemStore(collectionName).set(strId, updated);
 
       const col = getCollection(collectionName);
       if (isDbConnected() && col) {
