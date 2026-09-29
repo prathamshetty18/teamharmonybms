@@ -1,5 +1,6 @@
 import React from 'react';
 import { ShieldCheck, Clock, User, CheckCircle2, AlertTriangle, FileText, CloudRain } from 'lucide-react';
+import { ensureArray } from '../utils/validateShape';
 
 export default function AuditLogView({ logs = [] }) {
   const getActionBadge = (action) => {
@@ -23,9 +24,11 @@ export default function AuditLogView({ logs = [] }) {
       case 'RELIEF_APPLICATION_REJECTED':
         return <span className="status-pill disputed">RELIEF REJECTED</span>;
       default:
-        return <span className="black-badge" style={{ fontSize: '10px' }}>{action}</span>;
+        return <span className="black-badge" style={{ fontSize: '10px' }}>{action || 'SYSTEM'}</span>;
     }
   };
+
+  const safeLogs = ensureArray(logs);
 
   return (
     <div className="panel-card">
@@ -51,11 +54,11 @@ export default function AuditLogView({ logs = [] }) {
           </div>
         </div>
         <span className="black-badge" style={{ fontSize: '10px' }}>
-          {logs.length} AUDIT RECORDS
+          {safeLogs.length} AUDIT RECORDS
         </span>
       </div>
 
-      {logs.length === 0 ? (
+      {safeLogs.length === 0 ? (
         <div style={{ 
           textAlign: 'center', 
           padding: '60px 20px', 
@@ -83,32 +86,32 @@ export default function AuditLogView({ logs = [] }) {
               </tr>
             </thead>
             <tbody>
-              {logs.map(log => (
-                <tr key={log.id}>
+              {safeLogs.map(log => (
+                <tr key={log?.id ?? Math.random()}>
                   <td>
                     <div style={{ fontSize: '12px', fontWeight: 600 }}>
-                      {log.displayTime || new Date(log.timestamp).toLocaleString('en-IN')}
+                      {log?.displayTime || (log?.timestamp ? new Date(log.timestamp).toLocaleString('en-IN') : '—')}
                     </div>
                   </td>
                   <td>
-                    {getActionBadge(log.action)}
+                    {getActionBadge(log?.action)}
                   </td>
                   <td>
                     <span style={{ fontWeight: 800, fontFamily: 'var(--font-mono)', fontSize: '12px' }}>
-                      {log.targetId}
+                      {log?.targetId ?? '—'}
                     </span>
                   </td>
                   <td>
-                    <div style={{ fontWeight: 600, fontSize: '12px' }}>{log.actorName}</div>
-                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{log.actorRole}</div>
+                    <div style={{ fontWeight: 600, fontSize: '12px' }}>{log?.actorName ?? 'System'}</div>
+                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{log?.actorRole ?? '—'}</div>
                   </td>
                   <td>
                     <div style={{ fontSize: '12px', color: 'var(--text-body)', maxWidth: '340px', lineHeight: '1.4' }}>
-                      {log.details}
+                      {log?.details ?? '—'}
                     </div>
                   </td>
                   <td>
-                    {log.txHash ? (
+                    {(log?.txHash && typeof log.txHash === 'string') ? (
                       <a
                         href={log.explorerUrl || `https://testnet.mstscan.com/tx/${log.txHash}`}
                         target="_blank"
@@ -129,7 +132,7 @@ export default function AuditLogView({ logs = [] }) {
                           textDecoration: 'none'
                         }}
                       >
-                        🔗 {log.txHash.slice(0, 8)}...{log.txHash.slice(-6)} ↗
+                        🔗 {log.txHash.length > 14 ? `${log.txHash.slice(0, 8)}...${log.txHash.slice(-6)}` : log.txHash} ↗
                       </a>
                     ) : (
                       <code style={{ 
@@ -140,7 +143,7 @@ export default function AuditLogView({ logs = [] }) {
                         borderRadius: '4px',
                         color: 'var(--text-muted)'
                       }}>
-                        On-Chain
+                        [pending]
                       </code>
                     )}
                   </td>

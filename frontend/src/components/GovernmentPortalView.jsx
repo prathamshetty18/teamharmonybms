@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Building2, 
   CheckCircle2, 
@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { INDIAN_LOCATIONS, LAND_USE_TYPES } from '../data/mockData';
 import { useAuth } from '../context/AuthContext';
+import { ensureArray, ensureObj, field } from '../utils/validateShape';
 import MapView from './MapView';
 import AuditLogView from './AuditLogView';
 
@@ -44,6 +45,24 @@ export default function GovernmentPortalView({
   const { user, logout } = useAuth();
   const officerName = user?.name || user?.username || 'Officer';
 
+  // Defensive dev shape warning & score mismatch check (Phase 3a)
+  if (import.meta.env.DEV && parcels.length > 0) {
+    const sample = parcels[0];
+    const required = ['claimId', 'status', 'score'];
+    const missing = required.filter(k => sample[k] === undefined);
+    if (missing.length) console.warn('[dashboard] claim shape missing:', missing, 'sample:', sample);
+
+    parcels.forEach(claim => {
+      if (claim?.score !== undefined && claim?.onChainScore !== undefined && claim.score !== claim.onChainScore) {
+        console.warn('[dashboard] score mismatch — Mongo:', claim.score, 'chain:', claim.onChainScore, 'claimId:', claim.claimId);
+      }
+    });
+  }
+
+  const safeParcels = ensureArray(parcels);
+  const safeReliefApps = ensureArray(reliefApplications);
+  const safeAuditLogs = ensureArray(auditLogs);
+
   // Navigation: 'overview', 'needs-review', 'disputes', 'disaster-relief', 'audit-log'
   const [activeTab, setActiveTab] = useState('overview');
 
@@ -60,13 +79,13 @@ export default function GovernmentPortalView({
 
   // Selected claim for GIS overlay & inspection (defaults to claim 51)
   const [selectedClaim, setSelectedClaim] = useState(() => {
-    return parcels.find(p => String(p.landId || p.id) === '51') || (parcels.length > 0 ? parcels[0] : { id: '51', landId: '51' });
+    return safeParcels.find(p => String(p.landId || p.id) === '51') || (safeParcels.length > 0 ? safeParcels[0] : { id: '51', landId: '51' });
   });
 
   useEffect(() => {
-    if ((!selectedClaim || !selectedClaim.landId) && parcels.length > 0) {
-      const claim51 = parcels.find(p => String(p.landId || p.id) === '51');
-      setSelectedClaim(claim51 || parcels[0]);
+    if ((!selectedClaim || !selectedClaim.landId) && safeParcels.length > 0) {
+      const claim51 = safeParcels.find(p => String(p.landId || p.id) === '51');
+      setSelectedClaim(claim51 || safeParcels[0]);
     }
   }, [parcels]);
 
@@ -87,23 +106,23 @@ export default function GovernmentPortalView({
   const [disputeReasonInput, setDisputeReasonInput] = useState('');
 
   // Calculations
-  const totalClaims = parcels.length;
-  const verifiedCount = parcels.filter(p => p.status === 'Verified').length;
-  const pendingCount = parcels.filter(p => p.status === 'Pending Verification' || p.status === 'Special Verification Required' || p.status === 'Partially Verified').length;
-  const disputedCount = parcels.filter(p => p.status === 'Disputed' || p.legalStatus === '⚠️ Legal Issue Detected').length;
+  const totalClaims = safeParcels.length;
+  const verifiedCount = safeParcels.filter(p => p.status === 'Verified').length;
+  const pendingCount = safeParcels.filter(p => p.status === 'Pending Verification' || p.status === 'Special Verification Required' || p.status === 'Partially Verified').length;
+  const disputedCount = safeParcels.filter(p => p.status === 'Disputed' || p.legalStatus === '⚠️ Legal Issue Detected').length;
 
   // FIX 10: Pending relief applications count computed from full real dataset
-  const pendingReliefApps = reliefApplications.filter(a => 
+  const pendingReliefApps = safeReliefApps.filter(a => 
     a.status === 'Pending Government Verification' || a.status === 'Verified - Awaiting Approval'
   );
   const pendingReliefCount = pendingReliefApps.length;
 
-  const totalSanctionedRelief = reliefApplications
+  const totalSanctionedRelief = safeReliefApps
     .filter(a => a.status === 'Approved' && a.approvedAmount)
     .reduce((sum, a) => sum + Number(a.approvedAmount), 0);
 
   // Filtered parcels
-  const filteredParcels = parcels.filter(p => {
+  const filteredParcels = safeParcels.filter(p => {
     if (filterState !== 'All' && p.state !== filterState) return false;
     if (filterStatus !== 'All' && p.status !== filterStatus) return false;
     if (filterLandType !== 'All' && p.finalClassification !== filterLandType && p.selfDeclaredClassification !== filterLandType) return false;
@@ -111,7 +130,7 @@ export default function GovernmentPortalView({
   });
 
   // Needs Review parcels
-  const needsReviewParcels = parcels.filter(p => 
+  const needsReviewParcels = safeParcels.filter(p => 
     p.status === 'Pending Verification' || 
     p.status === 'Special Verification Required' || 
     p.status === 'Partially Verified' ||
@@ -119,7 +138,7 @@ export default function GovernmentPortalView({
   );
 
   // Disputed parcels
-  const disputedParcels = parcels.filter(p => 
+  const disputedParcels = safeParcels.filter(p => 
     p.status === 'Disputed' || 
     p.legalStatus === '⚠️ Legal Issue Detected'
   );
@@ -127,7 +146,16 @@ export default function GovernmentPortalView({
   const handleApproveClaimSubmit = async () => {
     if (!selectedParcelForApproval) return;
     setApprovalError('');
-    const score = Number(selectedParcelForApproval.verificationScore || selectedParcelForApproval.score || 2);
+    const scoreVal = selectedParcelForApproval.score !== undefined && selectedParcelForApproval.score !== null
+      ? selectedParcelForApproval.score
+      : (selectedParcelForApproval.verificationScore !== undefined && selectedParcelForApproval.verificationScore !== null ? selectedParcelForApproval.verificationScore : null);
+
+    if (scoreVal === null || isNaN(Number(scoreVal))) {
+      console.warn(`[dashboard] score unknown for claim ${selectedParcelForApproval.claimId || selectedParcelForApproval.landId} — no valid score provided`);
+      setApprovalError('Cannot register land: Consensus confidence score is unknown (—/5).');
+      return;
+    }
+    const score = Number(scoreVal);
     if (score < 5) {
       setApprovalError(`Cannot register land: Consensus confidence score (${score}/5) is below the statutory threshold of 5.`);
       return;
@@ -579,41 +607,45 @@ export default function GovernmentPortalView({
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredParcels.map(p => (
-                      <tr key={p.landId}>
+                    {ensureArray(filteredParcels).map(p => (
+                      <tr key={p?.landId ?? p?.id ?? Math.random()}>
                         <td>
-                          <div style={{ fontWeight: 800, fontFamily: 'var(--font-mono)' }}>{p.landId}</div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{p.applicationId}</div>
-                          <a
-                            href={p.explorerUrl || `https://testnet.mstscan.com/tx/${p.approvalTxHash || p.txHash || '0x3dd8689e5b428bde63bf806edbdfcbdfaf759dd7082b8ff15d4afe0cc5201892'}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '3px',
-                              fontSize: '10px',
-                              color: '#15803D',
-                              fontWeight: 700,
-                              textDecoration: 'underline',
-                              marginTop: '3px'
-                            }}
-                            title="Verify on MST Blockchain Testnet Explorer"
-                          >
-                            🔗 On-Chain Proof ↗
-                          </a>
+                          <div style={{ fontWeight: 800, fontFamily: 'var(--font-mono)' }}>{p?.landId ?? p?.claimId ?? '—'}</div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{p?.applicationId ?? '—'}</div>
+                          {(p?.approvalTxHash || p?.txHash) ? (
+                            <a
+                              href={p?.explorerUrl || `https://testnet.mstscan.com/tx/${p?.approvalTxHash || p?.txHash}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '3px',
+                                fontSize: '10px',
+                                color: '#15803D',
+                                fontWeight: 700,
+                                textDecoration: 'underline',
+                                marginTop: '3px'
+                              }}
+                              title="Verify on MST Blockchain Testnet Explorer"
+                            >
+                              🔗 On-Chain Proof ↗
+                            </a>
+                          ) : (
+                            <span style={{ fontSize: '10px', color: '#64748B', marginTop: '3px', display: 'inline-block' }}>[pending]</span>
+                          )}
                         </td>
                         <td>
-                          <div style={{ fontWeight: 600 }}>{p.farmerName}</div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{p.areaAcres} Acres</div>
+                          <div style={{ fontWeight: 600 }}>{p?.farmerName ?? p?.citizenName ?? '—'}</div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{p?.areaAcres ?? '—'} Acres</div>
                         </td>
                         <td>
-                          <div style={{ fontWeight: 600 }}>Survey #{p.surveyNumber}</div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{p.village}, {p.district}</div>
+                          <div style={{ fontWeight: 600 }}>Survey #{p?.surveyNumber ?? '—'}</div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{p?.village ?? '—'}, {p?.district ?? '—'}</div>
                         </td>
                         <td>
-                          <div style={{ fontWeight: 600 }}>{p.finalClassification || p.selfDeclaredClassification}</div>
-                          {p.hasClassificationMismatch && (
+                          <div style={{ fontWeight: 600 }}>{p?.finalClassification || p?.selfDeclaredClassification || '—'}</div>
+                          {p?.hasClassificationMismatch && (
                             <span className="status-pill mismatch" style={{ fontSize: '9px', padding: '1px 6px' }}>
                               Mismatch
                             </span>
@@ -623,22 +655,33 @@ export default function GovernmentPortalView({
                           <span style={{ 
                             fontSize: '11px', 
                             fontWeight: 700, 
-                            color: p.legalStatus === 'Clear' ? '#15803D' : '#DC2626' 
+                            color: p?.legalStatus === 'Clear' ? '#15803D' : '#DC2626' 
                           }}>
-                            {p.legalStatus}
+                            {p?.legalStatus ?? 'Clear'}
                           </span>
                         </td>
                         <td>
-                          <span className={`status-pill ${p.status === 'Verified' ? 'verified' : p.status === 'Disputed' ? 'disputed' : 'pending'}`}>
-                            {p.status}
+                          <span className={`status-pill ${p?.status === 'Verified' ? 'verified' : p?.status === 'Disputed' ? 'disputed' : 'pending'}`}>
+                            {p?.status ?? 'Pending'}
                           </span>
                           <div style={{ 
                             fontSize: '10px', 
                             marginTop: '4px', 
                             fontWeight: 700, 
-                            color: Number(p.verificationScore || p.score || 2) >= 5 ? '#15803D' : '#B45309' 
+                            color: (() => {
+                              const v = p?.score !== undefined && p?.score !== null ? p.score : p?.verificationScore;
+                              return (v !== null && v !== undefined && !isNaN(Number(v)) && Number(v) >= 5) ? '#15803D' : '#B45309';
+                            })()
                           }}>
-                            Score: {Number(p.verificationScore || p.score || 2)}/5 {Number(p.verificationScore || p.score || 2) >= 5 ? '✓' : '(Sub-threshold)'}
+                            {(() => {
+                              const v = p?.score !== undefined && p?.score !== null ? p.score : p?.verificationScore;
+                              if (v === null || v === undefined || isNaN(Number(v))) {
+                                console.warn(`[dashboard] score unknown for claim ${p?.claimId || p?.landId} — parcel has no valid score`);
+                                return 'Score: —/5 (Unknown)';
+                              }
+                              const s = Number(v);
+                              return `Score: ${s}/5 ${s >= 5 ? '✓' : '(Sub-threshold)'}`;
+                            })()}
                           </div>
                         </td>
                         <td>
@@ -728,15 +771,24 @@ export default function GovernmentPortalView({
                   </tr>
                 </thead>
                 <tbody>
-                  {needsReviewParcels.map(p => (
-                    <tr key={p.landId}>
-                      <td><code style={{ fontWeight: 800 }}>{p.landId}</code></td>
-                      <td>{p.farmerName}</td>
-                      <td>Survey #{p.surveyNumber} ({p.village})</td>
-                      <td>{p.finalClassification}</td>
+                  {ensureArray(needsReviewParcels).map(p => (
+                    <tr key={p?.landId ?? p?.id ?? Math.random()}>
+                      <td><code style={{ fontWeight: 800 }}>{p?.landId ?? p?.claimId ?? '—'}</code></td>
+                      <td>{p?.farmerName ?? p?.citizenName ?? '—'}</td>
+                      <td>Survey #{p?.surveyNumber ?? '—'} ({p?.village ?? '—'})</td>
+                      <td>{p?.finalClassification || p?.selfDeclaredClassification || '—'}</td>
                       <td>
                         {(() => {
-                          const sc = Number(p.verificationScore || p.score || 2);
+                          const v = p?.score !== undefined && p?.score !== null ? p.score : p?.verificationScore;
+                          if (v === null || v === undefined || isNaN(Number(v))) {
+                            console.warn(`[dashboard] score unknown for claim ${p?.landId || p?.claimId} in needs-review table`);
+                            return (
+                              <span className="status-pill pending" style={{ background: '#F3F4F6', color: '#6B7280' }}>
+                                — (Unknown)
+                              </span>
+                            );
+                          }
+                          const sc = Number(v);
                           return (
                             <span 
                               className={`status-pill ${sc >= 5 ? 'verified' : 'pending'}`}
@@ -748,9 +800,9 @@ export default function GovernmentPortalView({
                         })()}
                       </td>
                       <td>
-                        {p.hasClassificationMismatch ? (
+                        {p?.hasClassificationMismatch ? (
                           <span className="status-pill mismatch">Classification Mismatch</span>
-                        ) : p.missingDocuments?.length > 0 ? (
+                        ) : p?.missingDocuments?.length > 0 ? (
                           <span className="status-pill pending">Document Assistance</span>
                         ) : (
                           <span className="status-pill ongoing">Pending Ground Inspection</span>
@@ -762,7 +814,7 @@ export default function GovernmentPortalView({
                           style={{ fontSize: '11px', padding: '5px 10px' }}
                           onClick={() => {
                             setSelectedParcelForApproval(p);
-                            setFinalClassificationDecision(p.selfDeclaredClassification || 'Agricultural / Farmland');
+                            setFinalClassificationDecision(p?.selfDeclaredClassification || 'Agricultural / Farmland');
                           }}
                         >
                           Review & Verify
@@ -808,13 +860,13 @@ export default function GovernmentPortalView({
                   </tr>
                 </thead>
                 <tbody>
-                  {disputedParcels.map(p => (
-                    <tr key={p.landId}>
-                      <td><code style={{ fontWeight: 800 }}>{p.landId}</code></td>
-                      <td>{p.farmerName}</td>
-                      <td>Survey #{p.surveyNumber} ({p.village})</td>
+                  {ensureArray(disputedParcels).map(p => (
+                    <tr key={p?.landId ?? p?.id ?? Math.random()}>
+                      <td><code style={{ fontWeight: 800 }}>{p?.landId ?? p?.claimId ?? '—'}</code></td>
+                      <td>{p?.farmerName ?? p?.citizenName ?? '—'}</td>
+                      <td>Survey #{p?.surveyNumber ?? '—'} ({p?.village ?? '—'})</td>
                       <td style={{ color: '#B91C1C', fontWeight: 600, fontSize: '12px' }}>
-                        {p.disputeDetails || 'Boundary or encumbrance conflict under investigation.'}
+                        {p?.disputeDetails || 'Boundary or encumbrance conflict under investigation.'}
                       </td>
                       <td>
                         <button 
@@ -877,46 +929,50 @@ export default function GovernmentPortalView({
                   </tr>
                 </thead>
                 <tbody>
-                  {reliefApplications.map(app => {
-                    const linkedClaim = parcels.find(p => p.landId === app.linkedClaimId || p.claimId === app.linkedClaimId);
+                  {ensureArray(reliefApplications).map(app => {
+                    const linkedClaim = safeParcels.find(p => p?.landId === app?.linkedClaimId || p?.claimId === app?.linkedClaimId);
                     const isDisputed = linkedClaim?.status === 'Disputed';
 
                     const statusClass = 
-                      app.status === 'Approved' ? 'verified' :
-                      app.status === 'Rejected' ? 'disputed' :
-                      app.status === 'Verified - Awaiting Approval' ? 'ongoing' : 'pending';
+                      app?.status === 'Approved' ? 'verified' :
+                      app?.status === 'Rejected' ? 'disputed' :
+                      app?.status === 'Verified - Awaiting Approval' ? 'ongoing' : 'pending';
 
                     return (
-                      <tr key={app.applicationId}>
+                      <tr key={app?.applicationId ?? app?.id ?? Math.random()}>
                         <td>
-                          <div style={{ fontWeight: 800, fontFamily: 'var(--font-mono)' }}>{app.applicationId}</div>
+                          <div style={{ fontWeight: 800, fontFamily: 'var(--font-mono)' }}>{app?.applicationId ?? app?.reliefId ?? '—'}</div>
                           <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
-                            {new Date(app.createdAt).toLocaleDateString('en-IN')}
+                            {app?.createdAt ? new Date(app.createdAt).toLocaleDateString('en-IN') : '—'}
                           </div>
-                          <a
-                            href={app.explorerUrl || `https://testnet.mstscan.com/tx/${app.approvalTxHash || app.txHash || '0x4af4bce5a3349416bd697a7da55958d5a87b17be2494d00fba4cb6e6136c540c'}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '3px',
-                              fontSize: '10px',
-                              color: '#15803D',
-                              fontWeight: 700,
-                              textDecoration: 'underline',
-                              marginTop: '2px'
-                            }}
-                            title="Verify on MST Blockchain Testnet Explorer"
-                          >
-                            🔗 On-Chain Tx ↗
-                          </a>
+                          {(app?.approvalTxHash || app?.txHash) ? (
+                            <a
+                              href={app?.explorerUrl || `https://testnet.mstscan.com/tx/${app?.approvalTxHash || app?.txHash}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '3px',
+                                fontSize: '10px',
+                                color: '#15803D',
+                                fontWeight: 700,
+                                textDecoration: 'underline',
+                                marginTop: '2px'
+                              }}
+                              title="Verify on MST Blockchain Testnet Explorer"
+                            >
+                              🔗 On-Chain Tx ↗
+                            </a>
+                          ) : (
+                            <span style={{ fontSize: '10px', color: '#64748B', marginTop: '2px', display: 'inline-block' }}>[pending]</span>
+                          )}
                         </td>
                         <td>
-                          <div style={{ fontWeight: 600 }}>{app.citizenName}</div>
+                          <div style={{ fontWeight: 600 }}>{app?.citizenName ?? app?.farmerName ?? '—'}</div>
                         </td>
                         <td>
-                          <div style={{ fontWeight: 700 }}>{app.linkedClaimId}</div>
+                          <div style={{ fontWeight: 700 }}>{app?.linkedClaimId ?? '—'}</div>
                           {isDisputed && (
                             <span className="status-pill disputed" style={{ fontSize: '9px', padding: '1px 5px', display: 'inline-flex', alignItems: 'center', gap: '2px', marginTop: '2px' }}>
                               <AlertTriangle size={10} /> Disputed
@@ -924,29 +980,29 @@ export default function GovernmentPortalView({
                           )}
                         </td>
                         <td>
-                          <div style={{ fontWeight: 600 }}>{app.disasterType}</div>
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{app.date}</div>
+                          <div style={{ fontWeight: 600 }}>{app?.disasterType ?? '—'}</div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{app?.date ?? '—'}</div>
                         </td>
                         <td>
                           <span style={{ fontWeight: 700, color: '#B91C1C' }}>
-                            {app.damagePercentage ? `${app.damagePercentage}%` : 'Reported'}
+                            {app?.damagePercentage ? `${app.damagePercentage}%` : 'Reported'}
                           </span>
                         </td>
                         <td>
                           <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                            {app.suggestedCompensation ? `₹${Number(app.suggestedCompensation).toLocaleString('en-IN')}` : '—'}
+                            {app?.suggestedCompensation ? `₹${Number(app.suggestedCompensation).toLocaleString('en-IN')}` : '—'}
                           </span>
                         </td>
                         <td>
-                          <div style={{ fontWeight: 700 }}>₹{Number(app.requestedAmount).toLocaleString('en-IN')}</div>
-                          {app.recommendedAmount && (
+                          <div style={{ fontWeight: 700 }}>₹{Number(app?.requestedAmount ?? 0).toLocaleString('en-IN')}</div>
+                          {app?.recommendedAmount && (
                             <div style={{ fontSize: '11px', color: '#15803D', fontWeight: 600 }}>
                               Rec: ₹{Number(app.recommendedAmount).toLocaleString('en-IN')}
                             </div>
                           )}
                         </td>
                         <td>
-                          {app.approvedAmount ? (
+                          {app?.approvedAmount ? (
                             <div style={{ fontWeight: 800, color: '#15803D' }}>
                               ₹{Number(app.approvedAmount).toLocaleString('en-IN')}
                             </div>
@@ -956,7 +1012,7 @@ export default function GovernmentPortalView({
                         </td>
                         <td>
                           <span className={`status-pill ${statusClass}`}>
-                            {app.status}
+                            {app?.status ?? 'Pending'}
                           </span>
                         </td>
                         <td>
@@ -1015,9 +1071,16 @@ export default function GovernmentPortalView({
 
             {/* Statutory Consensus Confidence Score & Threshold Meter */}
             {(() => {
-              const currentScore = Number(selectedParcelForApproval.verificationScore || selectedParcelForApproval.score || 2);
-              const isBelowThreshold = currentScore < 5;
-              const percent = Math.min(100, Math.round((currentScore / 5) * 100));
+              const v = selectedParcelForApproval.score !== undefined && selectedParcelForApproval.score !== null 
+                ? selectedParcelForApproval.score 
+                : selectedParcelForApproval.verificationScore;
+              const isUnknown = v === null || v === undefined || isNaN(Number(v));
+              if (isUnknown) {
+                console.warn(`[dashboard] score unknown for claim ${selectedParcelForApproval.claimId || selectedParcelForApproval.landId} in modal`);
+              }
+              const currentScore = !isUnknown ? Number(v) : null;
+              const isBelowThreshold = currentScore === null || currentScore < 5;
+              const percent = currentScore !== null ? Math.min(100, Math.round((currentScore / 5) * 100)) : 0;
 
               return (
                 <div style={{ 
@@ -1089,8 +1152,12 @@ export default function GovernmentPortalView({
                 Cancel
               </button>
               {(() => {
-                const currentScore = Number(selectedParcelForApproval.verificationScore || selectedParcelForApproval.score || 2);
-                const isBelowThreshold = currentScore < 5;
+                const v = selectedParcelForApproval.score !== undefined && selectedParcelForApproval.score !== null 
+                  ? selectedParcelForApproval.score 
+                  : selectedParcelForApproval.verificationScore;
+                const isUnknown = v === null || v === undefined || isNaN(Number(v));
+                const currentScore = !isUnknown ? Number(v) : null;
+                const isBelowThreshold = currentScore === null || currentScore < 5;
                 return (
                   <button 
                     className="btn-gradient" 
@@ -1100,7 +1167,7 @@ export default function GovernmentPortalView({
                     title={isBelowThreshold ? 'Confidence score must be at least Score ≥5 (≥5 required) to register land' : 'Issue Official Verification Seal'}
                   >
                     {isBelowThreshold 
-                      ? `🔒 Cannot Register Land: Score ${currentScore} (≥5 required)`
+                      ? (currentScore !== null ? `🔒 Cannot Register Land: Score ${currentScore} (≥5 required)` : '🔒 Cannot Register Land: Score Unknown (—)')
                       : 'Issue Official Verification Seal (LAND STATUS: VERIFIED ✓)'}
                   </button>
                 );

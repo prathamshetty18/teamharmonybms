@@ -1,6 +1,25 @@
 import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 
+// Helper to safely extract coordinates from various parcel shapes
+function getParcelCoordinates(parcel) {
+  if (!parcel) return null;
+  const lat = parcel.lat ?? parcel.latitude ?? (parcel.latE6 != null ? parcel.latE6 / 1e6 : null);
+  const lon = parcel.lon ?? parcel.lng ?? parcel.longitude ?? (parcel.lonE6 != null ? parcel.lonE6 / 1e6 : null);
+  if (lat != null && !isNaN(Number(lat)) && lon != null && !isNaN(Number(lon))) {
+    return [Number(lat), Number(lon)];
+  }
+  if (Array.isArray(parcel.polygon) && parcel.polygon.length > 0) {
+    const validPts = parcel.polygon.filter(pt => Array.isArray(pt) && pt.length >= 2 && !isNaN(Number(pt[0])) && !isNaN(Number(pt[1])));
+    if (validPts.length > 0) {
+      const sumLat = validPts.reduce((acc, pt) => acc + Number(pt[0]), 0);
+      const sumLon = validPts.reduce((acc, pt) => acc + Number(pt[1]), 0);
+      return [sumLat / validPts.length, sumLon / validPts.length];
+    }
+  }
+  return null;
+}
+
 export default function MapView({ 
   parcels = [], 
   selectedParcel, 
@@ -126,35 +145,42 @@ export default function MapView({
         iconAnchor: [25, 10]
       });
 
-      const marker = L.marker([parcel.lat, parcel.lon], { icon: customIcon }).addTo(map);
-      marker.on('click', () => onSelectParcel(parcel));
-      layersRef.current.push(marker);
+      const coords = getParcelCoordinates(parcel);
+      if (coords) {
+        const marker = L.marker(coords, { icon: customIcon }).addTo(map);
+        marker.on('click', () => onSelectParcel(parcel));
+        layersRef.current.push(marker);
+      }
     });
 
     // Draw candidate pin if in drawing mode
-    if (newPin) {
-      const pinIcon = L.divIcon({
-        className: 'candidate-pin',
-        html: `
-          <div style="
-            background: #0F172A; 
-            color: white; 
-            padding: 4px 8px; 
-            border-radius: 9999px; 
-            font-size: 11px; 
-            font-weight: 700; 
-            white-space: nowrap;
-            box-shadow: 0 6px 16px rgba(0,0,0,0.3);
-            border: 2px solid #4F46E5;
-          ">
-            📍 New Claim GPS
-          </div>
-        `,
-        iconSize: [100, 30],
-        iconAnchor: [50, 15]
-      });
-      const candidateMarker = L.marker([newPin.lat, newPin.lng], { icon: pinIcon }).addTo(map);
-      layersRef.current.push(candidateMarker);
+    if (newPin && newPin.lat != null && (newPin.lng != null || newPin.lon != null)) {
+      const pinLat = Number(newPin.lat);
+      const pinLng = Number(newPin.lng != null ? newPin.lng : newPin.lon);
+      if (!isNaN(pinLat) && !isNaN(pinLng)) {
+        const pinIcon = L.divIcon({
+          className: 'candidate-pin',
+          html: `
+            <div style="
+              background: #0F172A; 
+              color: white; 
+              padding: 4px 8px; 
+              border-radius: 9999px; 
+              font-size: 11px; 
+              font-weight: 700; 
+              white-space: nowrap;
+              box-shadow: 0 6px 16px rgba(0,0,0,0.3);
+              border: 2px solid #4F46E5;
+            ">
+              📍 New Claim GPS
+            </div>
+          `,
+          iconSize: [100, 30],
+          iconAnchor: [50, 15]
+        });
+        const candidateMarker = L.marker([pinLat, pinLng], { icon: pinIcon }).addTo(map);
+        layersRef.current.push(candidateMarker);
+      }
     }
   }, [parcels, selectedParcel, newPin]);
 
@@ -162,7 +188,10 @@ export default function MapView({
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !selectedParcel) return;
-    map.flyTo([selectedParcel.lat, selectedParcel.lon], 16, { duration: 1 });
+    const coords = getParcelCoordinates(selectedParcel);
+    if (coords) {
+      map.flyTo(coords, 16, { duration: 1 });
+    }
   }, [selectedParcel]);
 
   // Read-only GIS Boundary & Nearby Overlay Effect

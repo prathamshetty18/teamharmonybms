@@ -31,6 +31,7 @@ import { INDIAN_LOCATIONS, LAND_USE_TYPES, DISASTER_TYPES } from '../data/mockDa
 import { computeSuggestedCompensation, getBaseRateForCategory } from '../data/compensationRates';
 import { simulateOCR } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { ensureArray, ensureObj, field } from '../utils/validateShape';
 
 export default function CitizenPortalView({ 
   parcels = [], 
@@ -42,6 +43,9 @@ export default function CitizenPortalView({
 }) {
   const { user, logout } = useAuth();
   const citizenName = user?.name || user?.username || 'Citizen';
+
+  const safeParcels = ensureArray(parcels);
+  const safeReliefApps = ensureArray(reliefApplications);
 
   // Navigation tab: 'my-claims', 'new-claim', 'apply-relief', 'my-relief-apps', 'claim-detail'
   const [activeTab, setActiveTab] = useState('my-claims');
@@ -164,10 +168,10 @@ export default function CitizenPortalView({
   const normalizedCitizen = citizenName.trim().toLowerCase();
   const normalizedUsername = (user?.username || '').trim().toLowerCase();
 
-  const myClaims = parcels.filter(p => {
-    const pFarmer = (p.farmerName || '').trim().toLowerCase();
-    const pCitizen = (p.citizenName || '').trim().toLowerCase();
-    const pClaimant = (p.claimant || '').trim().toLowerCase();
+  const myClaims = safeParcels.filter(p => {
+    const pFarmer = (p?.farmerName || '').trim().toLowerCase();
+    const pCitizen = (p?.citizenName || '').trim().toLowerCase();
+    const pClaimant = (p?.claimant || '').trim().toLowerCase();
     return (
       (pFarmer && (pFarmer === normalizedCitizen || pFarmer === normalizedUsername)) ||
       (pCitizen && (pCitizen === normalizedCitizen || pCitizen === normalizedUsername)) ||
@@ -177,19 +181,19 @@ export default function CitizenPortalView({
 
   // Only verified claims of this citizen are eligible for disaster relief
   const verifiedClaims = myClaims.filter(p => 
-    (p.status || '').toLowerCase() === 'verified'
+    (p?.status || '').toLowerCase() === 'verified'
   );
 
   // Filter relief applications for this citizen
-  const myReliefApps = reliefApplications.filter(a => {
-    const aName = (a.citizenName || a.farmerName || '').trim().toLowerCase();
+  const myReliefApps = safeReliefApps.filter(a => {
+    const aName = (a?.citizenName || a?.farmerName || '').trim().toLowerCase();
     return aName === normalizedCitizen || aName === normalizedUsername;
   });
 
   // Automatically determine land use category from linked claim (FIX 5 & FIX 6)
-  const linkedClaim = verifiedClaims.find(c => c.landId === reliefClaimId || c.claimId === reliefClaimId);
+  const linkedClaim = verifiedClaims.find(c => c?.landId === reliefClaimId || c?.claimId === reliefClaimId);
   const activeLandCategory = linkedClaim 
-    ? (linkedClaim.finalClassification || linkedClaim.landUseType || linkedClaim.selfDeclaredClassification || 'Agricultural / Farmland')
+    ? (linkedClaim?.finalClassification || linkedClaim?.landUseType || linkedClaim?.selfDeclaredClassification || 'Agricultural / Farmland')
     : customLandCategory;
 
   // FIX 5: Suggested compensation computation
@@ -210,7 +214,7 @@ export default function CitizenPortalView({
       return '0x' + hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
     } catch (e) {
       console.warn('Could not compute SHA-256 in browser:', e);
-      return '0x' + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+      return null;
     }
   };
 
@@ -630,44 +634,48 @@ export default function CitizenPortalView({
                     </tr>
                   </thead>
                   <tbody>
-                    {myClaims.map(claim => {
-                      const trustScore = claim.verificationScore || (claim.status === 'Verified' ? 5 : 2);
+                    {ensureArray(myClaims).map(claim => {
+                      const trustScore = claim?.verificationScore || (claim?.status === 'Verified' ? 5 : 2);
                       const trustPct = Math.round((trustScore / 5) * 100);
 
                       return (
-                        <tr key={claim.landId}>
+                        <tr key={claim?.landId ?? claim?.id ?? Math.random()}>
                           <td>
-                            <div style={{ fontWeight: 800, fontFamily: 'var(--font-mono)' }}>{claim.landId}</div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{claim.applicationId}</div>
-                            <a
-                              href={claim.explorerUrl || `https://testnet.mstscan.com/tx/${claim.txHash || '0x3dd8689e5b428bde63bf806edbdfcbdfaf759dd7082b8ff15d4afe0cc5201892'}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '3px',
-                                fontSize: '10px',
-                                color: '#15803D',
-                                fontWeight: 700,
-                                textDecoration: 'underline',
-                                marginTop: '4px'
-                              }}
-                              title="Verify on MST Blockchain Testnet Explorer"
-                            >
-                              🔗 On-Chain Proof ↗
-                            </a>
+                            <div style={{ fontWeight: 800, fontFamily: 'var(--font-mono)' }}>{claim?.landId ?? claim?.claimId ?? '—'}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{claim?.applicationId ?? '—'}</div>
+                            {claim?.txHash ? (
+                              <a
+                                href={claim?.explorerUrl || `https://testnet.mstscan.com/tx/${claim.txHash}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '3px',
+                                  fontSize: '10px',
+                                  color: '#15803D',
+                                  fontWeight: 700,
+                                  textDecoration: 'underline',
+                                  marginTop: '4px'
+                                }}
+                                title="Verify on MST Blockchain Testnet Explorer"
+                              >
+                                🔗 On-Chain Proof ↗
+                              </a>
+                            ) : (
+                              <span style={{ fontSize: '10px', color: '#64748B', marginTop: '4px', display: 'inline-block' }}>[pending]</span>
+                            )}
                           </td>
                           <td>
-                            <div style={{ fontWeight: 600 }}>Survey #{claim.surveyNumber} ({claim.plotNumber || 'Main'})</div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{claim.village}, {claim.district}, {claim.state}</div>
+                            <div style={{ fontWeight: 600 }}>Survey #{claim?.surveyNumber ?? '—'} ({claim?.plotNumber || 'Main'})</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{claim?.village ?? '—'}, {claim?.district ?? '—'}, {claim?.state ?? '—'}</div>
                           </td>
                           <td>
-                            <div style={{ fontWeight: 700, color: '#15803D' }}>{claim.areaAcres} Acres</div>
-                            <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{claim.areaHectares} ha</div>
+                            <div style={{ fontWeight: 700, color: '#15803D' }}>{claim?.areaAcres ?? '—'} Acres</div>
+                            <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{claim?.areaHectares ?? '—'} ha</div>
                           </td>
                           <td>
-                            <div style={{ fontWeight: 600 }}>{claim.finalClassification || claim.selfDeclaredClassification}</div>
+                            <div style={{ fontWeight: 600 }}>{claim?.finalClassification || claim?.selfDeclaredClassification || '—'}</div>
                           </td>
                           {/* FIX 4: Trust Score with visual gauge bar */}
                           <td>
@@ -692,8 +700,8 @@ export default function CitizenPortalView({
                             </div>
                           </td>
                           <td>
-                            <span className={`status-pill ${claim.status === 'Verified' ? 'verified' : claim.status === 'Disputed' ? 'disputed' : 'pending'}`}>
-                              {claim.status === 'Verified' ? 'LAND STATUS: VERIFIED ✓' : claim.status}
+                            <span className={`status-pill ${claim?.status === 'Verified' ? 'verified' : claim?.status === 'Disputed' ? 'disputed' : 'pending'}`}>
+                              {claim?.status === 'Verified' ? 'LAND STATUS: VERIFIED ✓' : (claim?.status ?? 'Pending')}
                             </span>
                           </td>
                           <td>
@@ -801,34 +809,34 @@ export default function CitizenPortalView({
                     </tr>
                   </thead>
                   <tbody>
-                    {myReliefApps.map(app => {
+                    {ensureArray(myReliefApps).map(app => {
                       const statusClass = 
-                        app.status === 'Approved' ? 'verified' :
-                        app.status === 'Rejected' ? 'disputed' :
-                        app.status === 'Verified - Awaiting Approval' ? 'ongoing' : 'pending';
+                        app?.status === 'Approved' ? 'verified' :
+                        app?.status === 'Rejected' ? 'disputed' :
+                        app?.status === 'Verified - Awaiting Approval' ? 'ongoing' : 'pending';
 
                       return (
-                        <tr key={app.applicationId}>
+                        <tr key={app?.applicationId ?? app?.id ?? Math.random()}>
                           <td>
-                            <strong style={{ fontFamily: 'var(--font-mono)' }}>{app.applicationId}</strong>
+                            <strong style={{ fontFamily: 'var(--font-mono)' }}>{app?.applicationId ?? app?.reliefId ?? '—'}</strong>
                           </td>
                           <td>
-                            <span style={{ fontWeight: 700 }}>{app.linkedClaimId}</span>
+                            <span style={{ fontWeight: 700 }}>{app?.linkedClaimId ?? '—'}</span>
                           </td>
                           <td>
-                            <div style={{ fontWeight: 600 }}>{app.disasterType}</div>
-                            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{app.date}</div>
+                            <div style={{ fontWeight: 600 }}>{app?.disasterType ?? '—'}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{app?.date ?? '—'}</div>
                           </td>
                           <td>
                             <span style={{ fontWeight: 700, color: '#B91C1C' }}>
-                              {app.damagePercentage ? `${app.damagePercentage}%` : 'Reported'}
+                              {app?.damagePercentage ? `${app.damagePercentage}%` : 'Reported'}
                             </span>
                           </td>
                           <td>
-                            <strong>₹{Number(app.requestedAmount).toLocaleString('en-IN')}</strong>
+                            <strong>₹{Number(app?.requestedAmount ?? 0).toLocaleString('en-IN')}</strong>
                           </td>
                           <td>
-                            {app.approvedAmount ? (
+                            {app?.approvedAmount ? (
                               <strong style={{ color: '#15803D' }}>₹{Number(app.approvedAmount).toLocaleString('en-IN')}</strong>
                             ) : (
                               <span style={{ color: 'var(--text-placeholder)' }}>—</span>
@@ -836,7 +844,7 @@ export default function CitizenPortalView({
                           </td>
                           <td>
                             <span className={`status-pill ${statusClass}`}>
-                              {app.status}
+                              {app?.status ?? 'Pending'}
                             </span>
                           </td>
                           <td>
@@ -2227,24 +2235,28 @@ export default function CitizenPortalView({
                           <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
                             {new Date(app.createdAt).toLocaleDateString('en-IN')}
                           </div>
-                          <a
-                            href={app.explorerUrl || `https://testnet.mstscan.com/tx/${app.approvalTxHash || app.txHash || '0x4af4bce5a3349416bd697a7da55958d5a87b17be2494d00fba4cb6e6136c540c'}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '3px',
-                              fontSize: '10px',
-                              color: '#15803D',
-                              fontWeight: 700,
-                              textDecoration: 'underline',
-                              marginTop: '2px'
-                            }}
-                            title="Verify on MST Blockchain Testnet Explorer"
-                          >
-                            🔗 On-Chain Tx ↗
-                          </a>
+                          {(app.approvalTxHash || app.txHash) ? (
+                            <a
+                              href={app.explorerUrl || `https://testnet.mstscan.com/tx/${app.approvalTxHash || app.txHash}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '3px',
+                                fontSize: '10px',
+                                color: '#15803D',
+                                fontWeight: 700,
+                                textDecoration: 'underline',
+                                marginTop: '2px'
+                              }}
+                              title="Verify on MST Blockchain Testnet Explorer"
+                            >
+                              🔗 On-Chain Tx ↗
+                            </a>
+                          ) : (
+                            <span style={{ fontSize: '10px', color: '#64748B', marginTop: '2px', display: 'inline-block' }}>[pending]</span>
+                          )}
                         </td>
                         <td>
                           <div style={{ fontWeight: 700 }}>{app.linkedClaimId}</div>

@@ -12,6 +12,7 @@ import PublicVerify from './pages/PublicVerify';
 import Signup from './pages/Signup';
 import Login from './pages/Login';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import ErrorBoundary from './components/ErrorBoundary';
 import { api } from './services/api';
 import './styles/dashboard.css';
 
@@ -43,16 +44,37 @@ function MainApp() {
         api.getReliefApplications(),
         api.getAuditLogs()
       ]);
-      setParcels(allParcels || []);
-      setReliefApplications(allRelief || []);
-      setAuditLogs(allLogs || []);
+      setParcels(Array.isArray(allParcels) ? allParcels : []);
+      setReliefApplications(Array.isArray(allRelief) ? allRelief : []);
+      setAuditLogs(Array.isArray(allLogs) ? allLogs : []);
     } catch (err) {
-      console.error("Failed to load application data:", err);
+      console.error("[dashboard] fetch failed:", err);
     }
   };
 
   useEffect(() => {
-    refreshData();
+    let alive = true;
+    Promise.all([
+      api.getParcels(),
+      api.getReliefApplications(),
+      api.getAuditLogs()
+    ])
+      .then(([allParcels, allRelief, allLogs]) => {
+        if (alive) {
+          setParcels(Array.isArray(allParcels) ? allParcels : []);
+          setReliefApplications(Array.isArray(allRelief) ? allRelief : []);
+          setAuditLogs(Array.isArray(allLogs) ? allLogs : []);
+        }
+      })
+      .catch(err => {
+        console.error('[dashboard] fetch failed:', err);
+        if (alive) {
+          setParcels([]);
+          setReliefApplications([]);
+          setAuditLogs([]);
+        }
+      });
+    return () => { alive = false; };
   }, []);
 
   const handleDismissNotification = (id) => {
@@ -245,26 +267,28 @@ function MainApp() {
           </ProtectedRoute>
         ) : currentPath === '/dashboard' ? (
           <ProtectedRoute allowedRole="GOVERNMENT">
-            <GovernmentPortalView 
-              parcels={parcels}
-              reliefApplications={reliefApplications}
-              auditLogs={auditLogs}
-              onApproveClaim={handleApproveClaim}
-              onElevateScore={handleElevateScore}
-              onDisputeClaim={handleDisputeClaim}
-              onResolveDispute={handleResolveDispute}
-              onVerifyRelief={handleVerifyRelief}
-              onApproveRelief={handleApproveRelief}
-              onRejectRelief={handleRejectRelief}
-              onOpenReport={(p) => {
-                setTargetModalParcel(p);
-                setIsReportModalOpen(true);
-              }}
-              onOpenQR={(p) => {
-                setTargetModalParcel(p);
-                setIsQRModalOpen(true);
-              }}
-            />
+            <ErrorBoundary>
+              <GovernmentPortalView 
+                parcels={parcels}
+                reliefApplications={reliefApplications}
+                auditLogs={auditLogs}
+                onApproveClaim={handleApproveClaim}
+                onElevateScore={handleElevateScore}
+                onDisputeClaim={handleDisputeClaim}
+                onResolveDispute={handleResolveDispute}
+                onVerifyRelief={handleVerifyRelief}
+                onApproveRelief={handleApproveRelief}
+                onRejectRelief={handleRejectRelief}
+                onOpenReport={(p) => {
+                  setTargetModalParcel(p);
+                  setIsReportModalOpen(true);
+                }}
+                onOpenQR={(p) => {
+                  setTargetModalParcel(p);
+                  setIsQRModalOpen(true);
+                }}
+              />
+            </ErrorBoundary>
           </ProtectedRoute>
         ) : (
           /* Route "/" or any other unauthenticated route */

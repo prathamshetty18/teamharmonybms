@@ -1,21 +1,20 @@
 import { RELIEF_RATE_PER_ACRE } from '../data/mockData.js';
+import http from './http';
 
 const PARCELS_KEY = 'bhoomi_setu_parcels';
 const RELIEF_KEY = 'bhoomi_setu_relief_apps';
 const AUDIT_KEY = 'bhoomi_setu_audit_logs';
 
-// Helper to generate an authentic 66-character (32-byte) Ethereum/MST Tx Hash
+const USE_REAL_API = import.meta.env.VITE_USE_REAL_API !== 'false';
+
+// Return null when no real on-chain transaction was executed
 export function generateBlockchainTxHash() {
-  const chars = '0123456789abcdef';
-  let hash = '0x';
-  for (let i = 0; i < 64; i++) {
-    hash += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return hash;
+  return null;
 }
 
 // Log blockchain transaction to console & terminal format
 export function emitBlockchainTxLog({ action, targetId, txHash, blockNumber, contractAddress, extra }) {
+  if (!txHash) return;
   const explorerUrl = `https://testnet.mstscan.com/tx/${txHash}`;
   const rpcVerify = `curl -X POST https://testnetrpc.mstblockchain.com -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"eth_getTransactionByHash","params":["${txHash}"],"id":1}'`;
   
@@ -43,7 +42,6 @@ function getLocalParcels() {
   if (cached) {
     try {
       const parsed = JSON.parse(cached);
-      // If cached data contains old pre-canned mock data, clear it
       if (Array.isArray(parsed) && parsed.some(p => p.farmerName === 'Raghavan Nair' || p.landId?.includes('8901'))) {
         localStorage.setItem(PARCELS_KEY, JSON.stringify([]));
         return [];
@@ -98,7 +96,6 @@ function saveLocalAuditLogs(logs) {
 }
 
 function logAuditAction({ action, targetId, targetType, details, actorName, actorRole }) {
-  const txHash = generateBlockchainTxHash();
   const entry = {
     id: `AUD-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
     action,
@@ -107,8 +104,8 @@ function logAuditAction({ action, targetId, targetType, details, actorName, acto
     details: details || '',
     actorName: actorName || 'System',
     actorRole: actorRole || 'ADMIN',
-    txHash,
-    explorerUrl: `https://testnet.mstscan.com/tx/${txHash}`,
+    txHash: null,
+    explorerUrl: null,
     timestamp: new Date().toISOString(),
     displayTime: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ', ' + new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
   };
@@ -160,13 +157,87 @@ export function simulateOCR(docName) {
 export const api = {
   // Parcels / Claims
   async getParcels() {
+    if (USE_REAL_API) {
+      try {
+        const claims = await http.get('/api/claims');
+        if (Array.isArray(claims)) {
+          if (claims.length === 0) {
+            saveLocalParcels([]);
+            return [];
+          }
+          const mapped = claims.map(c => {
+            const landId = String(c.claimId || c.landId || c.id || '');
+            const txHash = c.txHash || null;
+            return {
+              ...c,
+              landId: landId.startsWith('CLM-') ? landId : `CLM-${String(landId).padStart(6, '0')}`,
+              claimId: landId,
+              applicationId: c.applicationId || `APP-KA-${String(landId).padStart(4, '0')}`,
+              farmerName: c.ownerName || c.farmerName || 'Applicant Citizen',
+              citizenName: c.ownerName || c.farmerName || 'Applicant Citizen',
+              areaAcres: c.parcelAreaAcres || c.areaAcres || (c.area && c.area.acres) || 2.0,
+              areaHectares: (c.area && c.area.hectares) || parseFloat(((c.parcelAreaAcres || c.areaAcres || 2.0) * 0.404686).toFixed(2)),
+              areaSqM: (c.area && c.area.sqm) || Math.round((c.parcelAreaAcres || c.areaAcres || 2.0) * 4046.86),
+              surveyNumber: c.surveyNumber || '88/2',
+              village: c.village || 'Basavanagudi',
+              taluk: c.taluk || 'Bangalore South',
+              district: c.district || 'Bangalore South',
+              state: c.state || 'Karnataka',
+              finalClassification: c.landUse || c.landUseFarmerDeclared || 'Agricultural',
+              selfDeclaredClassification: c.landUse || c.landUseFarmerDeclared || 'Agricultural',
+              governmentRecordClassification: c.landUseGovtRecord || c.landUse || 'Agricultural',
+              groundVerificationClassification: c.landUseGroundVerified || 'Verified',
+              score: c.score !== undefined && c.score !== null ? Number(c.score) : (c.verificationScore !== undefined && c.verificationScore !== null ? Number(c.verificationScore) : undefined),
+              verificationScore: c.score !== undefined && c.score !== null ? Number(c.score) : (c.verificationScore !== undefined && c.verificationScore !== null ? Number(c.verificationScore) : undefined),
+              onChainScore: c.onChain?.score !== undefined && c.onChain?.score !== null ? Number(c.onChain.score) : (c.onChainScore !== undefined ? Number(c.onChainScore) : undefined),
+              status: c.status === 'Verified' ? 'Verified' : (c.status === 'Disputed' ? 'Disputed' : 'Pending Verification'),
+              stage: c.status === 'Verified' ? 'Completed' : (c.status === 'Disputed' ? 'Dispute Review' : 'Ground Verification'),
+              txHash,
+              approvalTxHash: c.status === 'Verified' ? txHash : null,
+              explorerUrl: txHash ? `https://testnet.mstscan.com/tx/${txHash}` : null,
+              polygon: c.polygon && c.polygon.coordinates ? c.polygon.coordinates[0].map(pt => [pt[1], pt[0]]) : c.polygon,
+              lat: c.lat ?? (c.latitude ?? (c.polygon && c.polygon.coordinates && c.polygon.coordinates[0] && c.polygon.coordinates[0][0] ? c.polygon.coordinates[0][0][1] : 12.9716)),
+              lon: c.lon ?? (c.longitude ?? (c.polygon && c.polygon.coordinates && c.polygon.coordinates[0] && c.polygon.coordinates[0][0] ? c.polygon.coordinates[0][0][0] : 77.5946)),
+              createdAt: c.createdAt || new Date().toISOString()
+            };
+          });
+          const localParcels = getLocalParcels();
+          const serverIds = new Set(mapped.map(m => m.landId));
+          const missingLocals = localParcels.filter(p => !serverIds.has(p.landId));
+          return [...mapped, ...missingLocals];
+        }
+      } catch (err) {
+        console.warn('[Real API getParcels failed, using local cache]:', err.message);
+      }
+    }
     return getLocalParcels();
   },
 
   async getParcelByLandId(landId) {
+    const rawId = String(landId).replace(/\D/g, '') || landId;
+    if (USE_REAL_API) {
+      try {
+        const c = await http.get(`/api/claims/${rawId}`);
+        if (c) {
+          const txHash = c.txHash || null;
+          return {
+            ...c,
+            landId: landId,
+            claimId: String(c.claimId || c.landId || rawId),
+            farmerName: c.ownerName || c.farmerName || 'Applicant Citizen',
+            citizenName: c.ownerName || c.farmerName || 'Applicant Citizen',
+            areaAcres: c.parcelAreaAcres || c.areaAcres || 2.0,
+            status: c.status === 'Verified' ? 'Verified' : (c.status === 'Disputed' ? 'Disputed' : 'Pending Verification'),
+            txHash,
+            explorerUrl: txHash ? `https://testnet.mstscan.com/tx/${txHash}` : null
+          };
+        }
+      } catch (_) {}
+    }
     const list = getLocalParcels();
     return list.find(p => 
       p.landId?.toLowerCase() === landId.trim().toLowerCase() ||
+      p.claimId?.toLowerCase() === landId.trim().toLowerCase() ||
       p.applicationId?.toLowerCase() === landId.trim().toLowerCase() ||
       p.surveyNumber?.toLowerCase() === landId.trim().toLowerCase()
     ) || null;
@@ -174,33 +245,69 @@ export const api = {
 
   // Citizen registers a new claim with auto-tagged name and unique ID (e.g. CLM-000123)
   async createCitizenClaim(claimData) {
-    const parcels = getLocalParcels();
-    const claimId = generateClaimId();
-    const applicationId = `APP-${claimData.state ? claimData.state.slice(0, 2).toUpperCase() : 'IN'}-${Math.floor(1000 + Math.random() * 9000)}`;
-
     const areaAcres = parseFloat(claimData.areaAcres) || 2.0;
-    const areaHectares = parseFloat((areaAcres * 0.404686).toFixed(2));
-    const areaSqM = Math.round(areaAcres * 4046.86);
-
     const lat = claimData.lat || 12.9716;
     const lon = claimData.lon || 77.5946;
+
+    let serverClaim = null;
+    if (USE_REAL_API) {
+      try {
+        const payload = {
+          ownerName: claimData.farmerName || claimData.citizenName || "Applicant Citizen",
+          nationalId: claimData.nationalId || claimData.idDetails || "IND-KA-560019-1092",
+          landUse: claimData.landUseType || "Agricultural",
+          areaAcres,
+          state: claimData.state || "Karnataka",
+          district: claimData.district || "Bangalore South",
+          taluk: claimData.taluk || "Bangalore South",
+          village: claimData.village || "Basavanagudi",
+          surveyNumber: claimData.surveyNumber || "72/1",
+          plotNumber: claimData.plotNumber || "Plot #1",
+          beneficiaryAddress: claimData.beneficiaryAddress || "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+          polygon: {
+            type: "Polygon",
+            coordinates: [[
+              [lon - 0.0005, lat - 0.0005],
+              [lon + 0.0006, lat - 0.0004],
+              [lon + 0.0005, lat + 0.0006],
+              [lon - 0.0006, lat + 0.0005],
+              [lon - 0.0005, lat - 0.0005]
+            ]]
+          }
+        };
+        serverClaim = await http.post('/api/claims', payload);
+      } catch (err) {
+        console.warn('[Real API createClaim failed or offline, fallback to local]:', err.message);
+      }
+    }
+
+    const parcels = getLocalParcels();
+    const assignedClaimId = serverClaim && (serverClaim.claimId || serverClaim.id) 
+      ? String(serverClaim.claimId || serverClaim.id) 
+      : generateClaimId();
+    const claimId = assignedClaimId.startsWith('CLM-') ? assignedClaimId : `CLM-${String(assignedClaimId).padStart(6, '0')}`;
+    const txHash = (serverClaim && serverClaim.txHash) || null;
+    const blockNumber = (serverClaim && serverClaim.blockNumber) || null;
+
+    const areaHectares = parseFloat((areaAcres * 0.404686).toFixed(2));
+    const areaSqM = Math.round(areaAcres * 4046.86);
 
     const selfDeclared = claimData.landUseType || "Agricultural / Farmland";
     const govtRecord = claimData.hasMismatch ? "Forest / Restricted" : selfDeclared;
     const isMismatch = claimData.hasMismatch || false;
 
     const newParcel = {
-      landId: claimId, // Unique ID e.g. CLM-000001
+      landId: claimId,
       claimId: claimId,
-      applicationId,
+      applicationId: `APP-${claimData.state ? claimData.state.slice(0, 2).toUpperCase() : 'IN'}-${Math.floor(1000 + Math.random() * 9000)}`,
       farmerName: claimData.farmerName || claimData.citizenName || "Applicant Citizen",
       citizenName: claimData.farmerName || claimData.citizenName || "Applicant Citizen",
       mobile: claimData.mobile || "+91 98000 00000",
       idDetails: claimData.idDetails || "Aadhaar: Verified",
       state: claimData.state || "Karnataka",
-      district: claimData.district || "Mandya",
-      taluk: claimData.taluk || "Maddur",
-      village: claimData.village || "Grama Block 1",
+      district: claimData.district || "Bangalore South",
+      taluk: claimData.taluk || "Bangalore South",
+      village: claimData.village || "Basavanagudi",
       surveyNumber: claimData.surveyNumber || "72/1",
       plotNumber: claimData.plotNumber || "Plot #1",
       areaAcres,
@@ -210,64 +317,55 @@ export const api = {
       lon,
       latE6: Math.round(lat * 1e6),
       lonE6: Math.round(lon * 1e6),
-
       selfDeclaredClassification: selfDeclared,
       governmentRecordClassification: govtRecord,
       groundVerificationClassification: "Pending Verification",
       finalClassification: isMismatch ? "⚠️ Land-Use Classification Mismatch" : selfDeclared,
       hasClassificationMismatch: isMismatch,
-
-      status: claimData.status || (claimData.hasMissingDocs ? "Special Verification Required" : "Pending Verification"),
+      status: (serverClaim && serverClaim.status) || (claimData.hasMissingDocs ? "Special Verification Required" : "Pending Verification"),
       stage: claimData.hasMissingDocs ? "Document Assistance" : "Ground Verification",
-      verificationScore: claimData.verificationScore !== undefined ? claimData.verificationScore : 1,
+      verificationScore: (serverClaim && serverClaim.score != null) ? serverClaim.score : (claimData.verificationScore !== undefined ? claimData.verificationScore : 1),
       verificationDate: "Under Review",
       verifiedByOfficer: "Assigned to Local Circle Officer",
       verificationTeamId: "TEAM-ASSIGNED",
-
       legalStatus: isMismatch ? "⚠️ Legal Issue Detected" : "Clear",
       disputeDetails: isMismatch ? "Discrepancy detected between self-declared farmland and restricted government registry." : null,
-
       referenceValuationPerAcre: 700000,
       totalReferenceValue: Math.round(areaAcres * 700000),
       estimatedMarketValue: Math.round(areaAcres * 950000),
       valuationZone: `${claimData.district || 'Regional'} Agricultural Zone 1`,
       valuationDate: "Current Session",
-
       documents: claimData.documents || [],
       missingDocuments: claimData.missingDocuments || [],
       deficiencyReport: claimData.deficiencyReport || null,
-
       groundNotes: "Application lodged by citizen with community consensus attestations.",
       communityAttestations: claimData.communityAttestations || claimData.neighbours || [],
       neighbours: claimData.neighbours || [],
       ngoEndorsement: claimData.ngoEndorsement || null,
-
       polygon: claimData.polygon || [
         [lat - 0.0005, lon - 0.0005],
         [lat + 0.0006, lon - 0.0004],
         [lat + 0.0005, lon + 0.0006],
         [lat - 0.0006, lon + 0.0005]
       ],
-
       hasDisasterClaim: false,
       disasterClaim: null,
-      createdAt: new Date().toISOString(),
-
-      // MST Testnet On-Chain Proof
-      txHash: generateBlockchainTxHash(),
-      blockNumber: 5786200 + Math.floor(Math.random() * 5000),
-      explorerUrl: ''
+      createdAt: (serverClaim && serverClaim.createdAt) || new Date().toISOString(),
+      txHash,
+      blockNumber,
+      explorerUrl: txHash ? `https://testnet.mstscan.com/tx/${txHash}` : null
     };
-    newParcel.explorerUrl = `https://testnet.mstscan.com/tx/${newParcel.txHash}`;
 
-    emitBlockchainTxLog({
-      action: 'RECORD LAND CLAIM (LandRegistry.sol::createClaim)',
-      targetId: claimId,
-      txHash: newParcel.txHash,
-      blockNumber: newParcel.blockNumber,
-      contractAddress: '0x9A587a9a4b990bb14Cd00D6432487271f00c2A5c',
-      extra: `Citizen: ${newParcel.farmerName} | Area: ${newParcel.areaAcres} Acres | Consensus: ${newParcel.verificationScore}/5`
-    });
+    if (newParcel.txHash) {
+      emitBlockchainTxLog({
+        action: 'RECORD LAND CLAIM (LandRegistry.sol::createClaim)',
+        targetId: claimId,
+        txHash: newParcel.txHash,
+        blockNumber: newParcel.blockNumber,
+        contractAddress: '0x9A587a9a4b990bb14Cd00D6432487271f00c2A5c',
+        extra: `Citizen: ${newParcel.farmerName} | Area: ${newParcel.areaAcres} Acres | Status: ${newParcel.status}`
+      });
+    }
 
     const updated = [newParcel, ...parcels];
     saveLocalParcels(updated);
@@ -276,7 +374,7 @@ export const api = {
       action: 'CLAIM_SUBMITTED',
       targetId: claimId,
       targetType: 'LAND_CLAIM',
-      details: `New claim lodged by citizen ${newParcel.farmerName} for Survey #${newParcel.surveyNumber} (${newParcel.areaAcres} acres) in ${newParcel.village}, ${newParcel.district}. On-chain Tx: ${newParcel.txHash}.`,
+      details: `New claim lodged by citizen ${newParcel.farmerName} for Survey #${newParcel.surveyNumber} (${newParcel.areaAcres} acres). On-chain Tx: ${newParcel.txHash || '[pending]'}.`,
       actorName: newParcel.farmerName,
       actorRole: 'CITIZEN'
     });
@@ -338,12 +436,42 @@ export const api = {
 
   // Government Official approves or grants final verification
   async approveLandClaim(landId, approvalData = {}) {
+    const rawId = String(landId).replace(/\D/g, '') || landId;
+    if (USE_REAL_API) {
+      try {
+        const response = await http.post(`/api/claims/${rawId}/approve`, approvalData);
+        const parcels = getLocalParcels();
+        const idx = parcels.findIndex(p => p.landId === landId || p.claimId === landId || p.claimId === rawId);
+        if (idx !== -1) {
+          parcels[idx] = { 
+            ...parcels[idx], 
+            ...(response.claim || {}), 
+            status: "Verified", 
+            stage: "Completed", 
+            verificationScore: response.claim?.score != null ? response.claim.score : 5 
+          };
+          saveLocalParcels(parcels);
+        }
+        return response.claim || response;
+      } catch (err) {
+        console.error('[approveLandClaim API call failed]:', err);
+        throw err;
+      }
+    }
+
     const parcels = getLocalParcels();
     const idx = parcels.findIndex(p => p.landId === landId || p.claimId === landId);
     if (idx === -1) throw new Error("Land not found");
 
     const p = parcels[idx];
-    const score = Number(approvalData.verificationScore || p.verificationScore || p.score || 2);
+    const scoreVal = approvalData.verificationScore !== undefined && approvalData.verificationScore !== null
+      ? approvalData.verificationScore
+      : (p.score !== undefined && p.score !== null ? p.score : (p.verificationScore !== undefined && p.verificationScore !== null ? p.verificationScore : null));
+    if (scoreVal === null || isNaN(Number(scoreVal))) {
+      console.warn(`[dashboard] score unknown for landId ${landId} — no valid score provided`);
+      throw new Error(`Cannot register land: Confidence score is unknown.`);
+    }
+    const score = Number(scoreVal);
     if (score < 5 && !approvalData.bypassThreshold) {
       throw new Error(`Cannot register land: Confidence score (${score}/5) is below the mandatory verification threshold of 5.`);
     }
@@ -358,22 +486,16 @@ export const api = {
     p.verificationDate = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
     p.verifiedByOfficer = approvalData.officerName || "District Revenue Officer (Govt of India)";
 
-    // On-Chain Title Seal Grant
-    const approvalTxHash = generateBlockchainTxHash();
-    const approvalBlock = 5786200 + Math.floor(Math.random() * 5000);
-    p.approvalTxHash = approvalTxHash;
-    p.approvalBlock = approvalBlock;
-    p.explorerUrl = `https://testnet.mstscan.com/tx/${approvalTxHash}`;
-    p.txHash = approvalTxHash;
-
-    emitBlockchainTxLog({
-      action: 'OFFICIAL TITLE SEAL GRANTED (LandRegistry.sol)',
-      targetId: landId,
-      txHash: approvalTxHash,
-      blockNumber: approvalBlock,
-      contractAddress: '0x9A587a9a4b990bb14Cd00D6432487271f00c2A5c',
-      extra: `Land ID: ${landId} | Officer: ${p.verifiedByOfficer} | Status: VERIFIED ✓`
-    });
+    if (p.approvalTxHash || p.txHash) {
+      emitBlockchainTxLog({
+        action: 'OFFICIAL TITLE SEAL GRANTED (LandRegistry.sol)',
+        targetId: landId,
+        txHash: p.approvalTxHash || p.txHash,
+        blockNumber: p.approvalBlock,
+        contractAddress: '0x9A587a9a4b990bb14Cd00D6432487271f00c2A5c',
+        extra: `Land ID: ${landId} | Officer: ${p.verifiedByOfficer} | Status: VERIFIED ✓`
+      });
+    }
 
     parcels[idx] = p;
     saveLocalParcels(parcels);
@@ -392,16 +514,30 @@ export const api = {
 
   // Elevate Confidence Score to statutory consensus threshold via official ground survey
   async elevateConfidenceScore(landId, officerName = "Revenue Officer") {
+    const rawId = String(landId).replace(/\D/g, '') || landId;
+    if (USE_REAL_API) {
+      try {
+        await http.post(`/api/claims/${rawId}/attest`, {
+          role: 'Village Leader',
+          attesterName: officerName,
+          attesterAddress: '0xe646C7CC53753c2A6252fbdC68568507EE0014a3',
+          notes: `Attested by ${officerName}`
+        });
+      } catch (err) {
+        console.warn('[Real API elevateConfidenceScore failed, applying locally]:', err.message);
+      }
+    }
+
     const parcels = getLocalParcels();
     const idx = parcels.findIndex(p => p.landId === landId || p.claimId === landId);
-    if (idx === -1) throw new Error("Land not found");
-
-    const p = parcels[idx];
-    p.verificationScore = 5;
-    p.groundVerificationClassification = p.selfDeclaredClassification;
-    p.groundNotes = (p.groundNotes || "") + ` | Ground survey and statutory community consensus attested by ${officerName}. Score elevated to 5/5 consensus threshold.`;
-    parcels[idx] = p;
-    saveLocalParcels(parcels);
+    if (idx !== -1) {
+      const p = parcels[idx];
+      p.verificationScore = 5;
+      p.groundVerificationClassification = p.selfDeclaredClassification;
+      p.groundNotes = (p.groundNotes || "") + ` | Ground survey and statutory community consensus attested by ${officerName}. Score elevated to 5/5 consensus threshold.`;
+      parcels[idx] = p;
+      saveLocalParcels(parcels);
+    }
 
     logAuditAction({
       action: 'CONSENSUS_SCORE_ELEVATED',
@@ -412,22 +548,33 @@ export const api = {
       actorRole: 'GOVERNMENT_OFFICER'
     });
 
-    return p;
+    return parcels[idx] || null;
   },
 
   // Dispute a claim
   async disputeClaim(landId, reason = "Boundary dispute registered with revenue authority", officerName = "Revenue Officer") {
+    const rawId = String(landId).replace(/\D/g, '') || landId;
+    if (USE_REAL_API) {
+      try {
+        await http.post(`/api/claims/${rawId}/dispute`, {
+          reason,
+          officer: officerName
+        });
+      } catch (err) {
+        console.warn('[Real API disputeClaim failed, applying locally]:', err.message);
+      }
+    }
+
     const parcels = getLocalParcels();
     const idx = parcels.findIndex(p => p.landId === landId || p.claimId === landId);
-    if (idx === -1) throw new Error("Land not found");
-
-    const p = parcels[idx];
-    p.status = "Disputed";
-    p.legalStatus = "⚠️ Legal Issue Detected";
-    p.disputeDetails = reason;
-
-    parcels[idx] = p;
-    saveLocalParcels(parcels);
+    if (idx !== -1) {
+      const p = parcels[idx];
+      p.status = "Disputed";
+      p.legalStatus = "⚠️ Legal Issue Detected";
+      p.disputeDetails = reason;
+      parcels[idx] = p;
+      saveLocalParcels(parcels);
+    }
 
     logAuditAction({
       action: 'CLAIM_DISPUTED',
@@ -438,22 +585,33 @@ export const api = {
       actorRole: 'GOVERNMENT_OFFICER'
     });
 
-    return p;
+    return parcels[idx] || null;
   },
 
   // Resolve a dispute on a claim
   async resolveDispute(landId, officerName = "Revenue Magistrate") {
+    const rawId = String(landId).replace(/\D/g, '') || landId;
+    if (USE_REAL_API) {
+      try {
+        await http.post(`/api/claims/${rawId}/resolve`, {
+          restore: true,
+          officer: officerName
+        });
+      } catch (err) {
+        console.warn('[Real API resolveDispute failed, applying locally]:', err.message);
+      }
+    }
+
     const parcels = getLocalParcels();
     const idx = parcels.findIndex(p => p.landId === landId || p.claimId === landId);
-    if (idx === -1) throw new Error("Land not found");
-
-    const p = parcels[idx];
-    p.status = "Verified";
-    p.legalStatus = "Clear";
-    p.disputeDetails = null;
-
-    parcels[idx] = p;
-    saveLocalParcels(parcels);
+    if (idx !== -1) {
+      const p = parcels[idx];
+      p.status = "Verified";
+      p.legalStatus = "Clear";
+      p.disputeDetails = null;
+      parcels[idx] = p;
+      saveLocalParcels(parcels);
+    }
 
     logAuditAction({
       action: 'DISPUTE_RESOLVED',
@@ -464,19 +622,51 @@ export const api = {
       actorRole: 'GOVERNMENT_OFFICER'
     });
 
-    return p;
+    return parcels[idx] || null;
   },
 
   // ==========================================
-  // DISASTER RELIEF APPLICATIONS (CHANGE 4)
+  // DISASTER RELIEF APPLICATIONS
   // ==========================================
   async getReliefApplications() {
+    if (USE_REAL_API) {
+      try {
+        const serverReliefs = await http.get('/api/reliefs');
+        if (Array.isArray(serverReliefs)) {
+          if (serverReliefs.length === 0) {
+            saveLocalReliefApps([]);
+            return [];
+          }
+          const mapped = serverReliefs.map(r => ({
+            applicationId: r.reliefId || r.id || `REL-${String(r.id || 1).padStart(6, '0')}`,
+            reliefId: r.reliefId || r.id,
+            citizenName: r.citizenName || 'Applicant Citizen',
+            linkedClaimId: r.linkedClaimId || '',
+            disasterType: r.disasterType || 'Flood',
+            date: r.date || new Date().toISOString().split('T')[0],
+            description: r.description || '',
+            requestedAmount: r.requestedAmount || (r.budget ? Number(r.budget) : 50000),
+            approvedAmount: r.approvedAmount || null,
+            status: r.status || 'Pending Government Verification',
+            txHash: r.txHash || null,
+            explorerUrl: r.txHash ? `https://testnet.mstscan.com/tx/${r.txHash}` : null,
+            createdAt: r.createdAt || new Date().toISOString()
+          }));
+          const localApps = getLocalReliefApps();
+          const serverIds = new Set(mapped.map(m => m.applicationId));
+          const missing = localApps.filter(a => !serverIds.has(a.applicationId));
+          return [...mapped, ...missing];
+        }
+      } catch (err) {
+        console.warn('[Real API getReliefApplications failed, using local cache]:', err.message);
+      }
+    }
     return getLocalReliefApps();
   },
 
   async createReliefApplication(reliefData) {
     const apps = getLocalReliefApps();
-    const reliefId = generateReliefId(); // e.g. REL-000045
+    const reliefId = generateReliefId();
 
     const newApp = {
       applicationId: reliefId,
@@ -493,28 +683,16 @@ export const api = {
       suggestedCompensation: parseFloat(reliefData.suggestedCompensation) || 0,
       requestedAmount: parseFloat(reliefData.requestedAmount) || 0,
       approvedAmount: null,
-      status: "Pending Government Verification", // Initial status
+      status: "Pending Government Verification",
       verificationNotes: '',
       verifiedBy: null,
       verificationDate: null,
       remarks: "Application received and queued for field verification.",
       createdAt: new Date().toISOString(),
-
-      // MST Testnet On-Chain Proof
-      txHash: generateBlockchainTxHash(),
-      blockNumber: 5786200 + Math.floor(Math.random() * 5000),
-      explorerUrl: ''
+      txHash: null,
+      blockNumber: null,
+      explorerUrl: null
     };
-    newApp.explorerUrl = `https://testnet.mstscan.com/tx/${newApp.txHash}`;
-
-    emitBlockchainTxLog({
-      action: 'LODGE DISASTER RELIEF APPLICATION (ReliefFund.sol)',
-      targetId: reliefId,
-      txHash: newApp.txHash,
-      blockNumber: newApp.blockNumber,
-      contractAddress: '0x41241011dE47C4eb30dFcc45097ceD1f73a7Bd25',
-      extra: `Citizen: ${newApp.citizenName} | Event: ${newApp.disasterType} | Requested: ₹${Number(newApp.requestedAmount).toLocaleString('en-IN')}`
-    });
 
     const updated = [newApp, ...apps];
     saveLocalReliefApps(updated);
@@ -533,6 +711,18 @@ export const api = {
 
   // Step 1: Verification (checkbox + notes + recommended amount + damage assessment)
   async verifyReliefApplication(reliefId, { notes, officerName, recommendedAmount, assessedDamagePercentage, damageSeverity } = {}) {
+    const rawId = String(reliefId).replace(/\D/g, '') || 1;
+    if (USE_REAL_API) {
+      try {
+        await http.post(`/api/claims/${rawId}/assess`, {
+          damageLevel: damageSeverity === 'Catastrophic' ? 4 : (damageSeverity === 'Severe' ? 3 : 2),
+          damageEvidenceHash: '0x1111111111111111111111111111111111111111111111111111111111111111'
+        });
+      } catch (err) {
+        console.warn('[Real API verifyReliefApplication assess failed, continuing]:', err.message);
+      }
+    }
+
     const apps = getLocalReliefApps();
     const idx = apps.findIndex(a => a.applicationId === reliefId || a.reliefId === reliefId);
     if (idx === -1) throw new Error("Relief application not found");
@@ -570,33 +760,30 @@ export const api = {
 
   // Step 2: Approval (officer enters approved amount)
   async approveReliefApplication(reliefId, { approvedAmount, officerName }) {
+    const rawId = String(reliefId).replace(/\D/g, '') || 1;
+    const amount = parseFloat(approvedAmount) || 50000;
+
+    if (USE_REAL_API) {
+      try {
+        await http.post(`/api/claims/${rawId}/approve-payout`, {
+          officer: officerName || 'KA102',
+          amount: String(amount)
+        });
+      } catch (err) {
+        console.warn('[Real API approveReliefApplication failed, continuing]:', err.message);
+      }
+    }
+
     const apps = getLocalReliefApps();
     const idx = apps.findIndex(a => a.applicationId === reliefId || a.reliefId === reliefId);
     if (idx === -1) throw new Error("Relief application not found");
 
     const app = apps[idx];
-    const amount = parseFloat(approvedAmount) || app.requestedAmount;
     app.status = "Approved";
     app.approvedAmount = amount;
     app.approvedBy = officerName || "Government Sanctioning Officer";
     app.approvalDate = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
     app.remarks = `Sanctioned for DBT distribution. Approved amount: ₹${amount.toLocaleString('en-IN')}.`;
-
-    // MST Testnet On-Chain Sanction
-    const approvalTxHash = generateBlockchainTxHash();
-    const approvalBlock = 5786200 + Math.floor(Math.random() * 5000);
-    app.approvalTxHash = approvalTxHash;
-    app.approvalBlock = approvalBlock;
-    app.explorerUrl = `https://testnet.mstscan.com/tx/${approvalTxHash}`;
-
-    emitBlockchainTxLog({
-      action: 'SANCTION DISASTER RELIEF DBT (ReliefFund.sol)',
-      targetId: reliefId,
-      txHash: approvalTxHash,
-      blockNumber: approvalBlock,
-      contractAddress: '0x41241011dE47C4eb30dFcc45097ceD1f73a7Bd25',
-      extra: `Sanctioned Amount: ₹${amount.toLocaleString('en-IN')} | Officer: ${app.approvedBy}`
-    });
 
     apps[idx] = app;
     saveLocalReliefApps(apps);
@@ -679,6 +866,20 @@ export const api = {
 
   // Audit Logs
   async getAuditLogs() {
+    if (USE_REAL_API) {
+      try {
+        const serverLogs = await http.get('/api/audit-logs');
+        if (Array.isArray(serverLogs)) {
+          if (serverLogs.length === 0) {
+            saveLocalAuditLogs([]);
+            return [];
+          }
+          return serverLogs;
+        }
+      } catch (err) {
+        console.warn('[Real API getAuditLogs failed, using local cache]:', err.message);
+      }
+    }
     return getLocalAuditLogs();
   },
 
@@ -686,3 +887,32 @@ export const api = {
     return logAuditAction(data);
   }
 };
+
+export function clearAllFrontendData() {
+  try {
+    localStorage.removeItem(PARCELS_KEY);
+    localStorage.removeItem(RELIEF_KEY);
+    localStorage.removeItem(AUDIT_KEY);
+    localStorage.removeItem('bhoomi_setu_auth');
+    localStorage.removeItem('bhoomi_last_registered_aadhaar');
+    const keys = Object.keys(localStorage);
+    for (const key of keys) {
+      if (key.startsWith('bhoomi_')) {
+        localStorage.removeItem(key);
+      }
+    }
+    saveLocalParcels([]);
+    saveLocalReliefApps([]);
+    saveLocalAuditLogs([]);
+    console.log('[BhoomiSetu] All frontend local data cleared.');
+  } catch (e) {
+    console.warn('[BhoomiSetu] Error clearing frontend storage:', e);
+  }
+}
+
+// Attach to window in dev for direct console invocation if needed
+if (typeof window !== 'undefined') {
+  window.clearAllFrontendData = clearAllFrontendData;
+}
+
+export default api;
