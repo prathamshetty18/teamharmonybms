@@ -1,4 +1,4 @@
-# Post-Disaster Land Rights & Relief on MST Blockchain
+# Post-Disaster Land Rights & Relief on MST Blockchain (BhoomiSetu)
 
 > **Preserving community consensus and immutable land claim evidence when physical records are lost, then using that verified proof to release government disaster relief quickly and without fraud.**  
 > *Built for BMS College of Engineering 24-Hour Buildathon (September 28–29, 2026) | Team Harmony*
@@ -7,28 +7,36 @@
 
 ## 📌 Overview & Real-World Problem
 
-When natural disasters (floods, fires, earthquakes) strike, physical land records, paper deeds, and local registry offices are frequently destroyed or rendered inaccessible. Two critical breakdowns occur:
-1. **Land rights are lost:** Displaced families face eviction, predatory land-grabbing, and prolonged dispute battles.
+When natural disasters (floods, fires, earthquakes) strike, physical land records, paper deeds, and local registry offices are frequently destroyed or rendered inaccessible. Two critical breakdowns occur simultaneously:
+1. **Land rights are lost:** Displaced families face eviction, predatory land-grabbing, and prolonged legal dispute battles.
 2. **Relief is blocked:** Government compensation schemes require verified ownership of affected parcels. Without records, payouts stall or are drained by fraudulent claims.
 
-This project delivers a **decentralized, community-attested land rights registry** coupled with an **automated disaster relief escrow** deployed on the **MST Blockchain Testnet**.
+This project delivers a **decentralized, community-attested land rights registry** (`LandRegistry.sol`) coupled with an **automated disaster relief escrow** (`ReliefFund.sol`) deployed on the **MST Blockchain Testnet**.
 
 > **Core Philosophy:** *Blockchain does not unilaterally decide who owns the land; it permanently preserves verifiable evidence of community consensus so no legitimate family is disenfranchised. Verified land proof is then the key that unlocks government relief.*
 
 ---
 
-## 🏛️ System Architecture & Flowchart
+## 🔗 Live MST Testnet Deployed Contracts
 
-The system connects a **React** frontend, a **Node.js/Express** backend with geospatial overlap detection and relief eligibility engine, **MongoDB Atlas** for off-chain evidence, and smart contracts deployed on the **MST Testnet**.
+| Smart Contract | Network | Live Address on MST Testnet | Deployment Tx Hash |
+|---|---|---|---|
+| **`LandRegistry.sol`** | MST Testnet | `0x9A587a9a4b990bb14Cd00D6432487271f00c2A5c` | `0x3dd8689e5b428bde63bf806edbdfcbdfaf759dd7082b8ff15d4afe0cc5201892` |
+| **`ReliefFund.sol`** | MST Testnet | `0x41241011dE47C4eb30dFcc45097ceD1f73a7Bd25` | `0x4af4bce5a3349416bd697a7da55958d5a87b17be2494d00fba4cb6e6136c540c` |
 
-### Architecture Diagram
-![System Architecture Flowchart](assets/architecture.png)
+- **RPC URL:** `https://testnetrpc.mstblockchain.com`
+- **Chain ID:** `91562037` (`0x5752035`)
+- **Faucet:** `https://faucet.mstblockchain.com`
 
-### Complete Flowchart Breakdown (Mermaid)
+---
+
+## 🏛️ System Architecture
+
+The system connects a **Vite React** frontend, a **Node.js/Express** backend with geospatial overlap detection (Turf.js) and relief eligibility engine, **MongoDB Atlas** for off-chain evidence, and smart contracts deployed on the **MST Testnet**.
 
 ```mermaid
 flowchart TD
-    subgraph Frontend["Frontend (React)"]
+    subgraph Frontend["Frontend (Vite + React)"]
         direction TB
         CF["Claim Form<br/><small>Map + GPS</small>"]
         MV["Map View<br/><small>Claim markers</small>"]
@@ -39,14 +47,14 @@ flowchart TD
     subgraph Backend["Backend (Express + Node.js)"]
         direction TB
         PC["POST /claims<br/><small>Create claim</small>"]
-        PA["POST /attest<br/><small>Multi-sig vote</small>"]
+        PA["POST /claims/:id/attest<br/><small>Multi-sig vote</small>"]
         GC["GET /claims<br/><small>Query all claims</small>"]
         RL["POST /reliefs<br/><small>Declare relief event</small>"]
         EL["Eligibility engine<br/><small>Zone + Verified check</small>"]
-        AS["POST /assess<br/><small>Damage level</small>"]
-        AP["POST /approve-payout<br/><small>Officer approval</small>"]
+        AS["POST /claims/:id/assess<br/><small>Damage level</small>"]
+        AP["POST /claims/:id/approve-payout<br/><small>Officer approval</small>"]
         CJ["chain.js<br/><small>Contract layer</small>"]
-        OD["Overlap detection<br/><small>Compare all coordinates</small>"]
+        OD["Overlap detection<br/><small>Compare coordinates (Turf.js)</small>"]
         DR["Dispute resolver<br/><small>Flag for human review</small>"]
     end
 
@@ -59,16 +67,15 @@ flowchart TD
     subgraph Blockchain["Blockchain (MST Testnet)"]
         direction TB
         CC["createClaim()<br/><small>Proof of existence</small>"]
-        AT["attest()<br/><small>Add signature</small>"]
+        AT["attest()<br/><small>Role-weighted vote</small>"]
         DP["dispute()<br/><small>Flag conflict</small>"]
-        GT["getClaim()<br/><small>Read immutable</small>"]
+        GT["getClaim()<br/><small>Read immutable state</small>"]
         CR["createRelief()<br/><small>Fund a relief event</small>"]
         AC["assess() / approvePayout()<br/><small>Damage + 2 officers</small>"]
         RE["release()<br/><small>Pay once, if Verified</small>"]
-        RPC["MST Blockchain Testnet: https://testnetrpc.mstblockchain.com"]
+        RPC["MST Testnet RPC: https://testnetrpc.mstblockchain.com"]
     end
 
-    %% Frontend to Backend Flows
     CF --> PC
     MV --> GC
     GD --> RL
@@ -77,7 +84,6 @@ flowchart TD
     GD --> AP
     VP --> CJ
 
-    %% Backend to Storage & Blockchain
     PC --> OD
     OD --> CC
     PC --> CL
@@ -94,7 +100,6 @@ flowchart TD
     AP --> AC
     AC --> RE
 
-    %% Styling to reflect architecture tiers
     classDef fe fill:#133e68,stroke:#3b82f6,stroke-width:1px,color:#ffffff;
     classDef be fill:#0d5c46,stroke:#10b981,stroke-width:1px,color:#ffffff;
     classDef db fill:#3b1f6b,stroke:#a78bfa,stroke-width:1px,color:#ffffff;
@@ -112,15 +117,15 @@ flowchart TD
 
 ## 🔒 Privacy Architecture: On-Chain vs. Off-Chain
 
-To adhere to privacy standards and prevent storing personally identifiable information (PII) on a public ledger:
+To strictly comply with privacy standards and prevent storing personally identifiable information (PII) on a public ledger:
 
 | On-Chain (`LandRegistry.sol`, `ReliefFund.sol`) | Off-Chain (MongoDB Atlas / Backend) |
 |---|---|
 | `ownerHash` = `SHA-256(NationalID + Salt)` | Owner full name, phone number, government ID |
 | `evidenceHash` = `SHA-256(Photos + GeoJSON + Witnesses)` | Original deed photos, ground survey images |
-| Reference Latitude & Longitude (`latE6`, `lonE6`) | Full polygon boundary coordinates |
+| Reference Latitude & Longitude (`latE6`, `lonE6` in micro-degrees) | Full boundary polygon coordinates |
 | Community Trust Score & Status (`Pending` / `Verified` / `Disputed`) | Dispute notes, witness written statements |
-| Attestation logs (Attester address, role, score) | Human-readable attester display profiles |
+| Attestation logs (Attester address, role, score) | Human-readable attester profiles |
 | **Relief event: zone hash, per-claim cap, budget** | **Full zone polygon, scheme description** |
 | **Damage level and `damageEvidenceHash`** | **Field assessment photos and surveyor notes** |
 | **Payout status, amount, beneficiary address, tx hash** | **Beneficiary contact and bank mapping** |
@@ -130,18 +135,18 @@ To adhere to privacy standards and prevent storing personally identifiable infor
 ## ⭐ Key Features
 
 1. **Proof of Existence on MST Testnet**
-   - High-throughput, low-fee smart contract transactions on the MST network create tamper-evident claim timestamps.
+   - High-throughput, low-fee smart contract transactions create tamper-evident claim timestamps.
 2. **Trust-Weighted Multi-Party Attestation**
    - Consensus requires weighted scores from community actors:
      - **Neighbor:** `+1` weight
      - **Village Leader:** `+3` weight
      - **Accredited NGO:** `+3` weight
-   - Claims transition automatically from `Pending` to **`Verified`** once reaching **Score ≥ 5**.
+   - Claims transition automatically from `Pending` (0) to **`Verified`** (1) upon reaching **Score ≥ 5**.
 3. **Automated Geospatial Overlap Detection**
-   - Backend compares candidate claim polygons using Turf.js. Conflicting submissions automatically route to the **Dispute Resolver** for human arbitration and the claim is frozen on-chain.
+   - Backend compares candidate claim polygons using Turf.js. Conflicting submissions automatically trigger `dispute()`, setting claim status to `Disputed` (2) and freezing payouts on-chain.
 4. **Relief & Reimbursement Escrow (`ReliefFund.sol`)**
-   - Enables governments to lock relief funds on-chain. 
-   - Strict anti-fraud rules: payout requires prior claim verification, accredited damage assessment, and dual-officer consensus approval.
+   - Enables government admins to lock relief funds on-chain.
+   - Strict anti-fraud rules: payout requires prior claim verification, accredited damage assessment, and matching dual-officer approval.
 5. **Public QR Proof Certificate (`/verify/:id`)**
    - Generates a verifiable QR code linking directly to on-chain state, allowing emergency aid workers and insurers to confirm land rights and payout records immediately.
 
@@ -151,25 +156,14 @@ To adhere to privacy standards and prevent storing personally identifiable infor
 
 - **Smart Contracts:** Solidity `^0.8.20`, deployed on MST Testnet (`LandRegistry.sol`, `ReliefFund.sol`)
 - **Blockchain Client:** `ethers.js` v6, `@mstblockchain/mst-sdk`, BridgeKey Wallet
-- **Backend API:** Node.js, Express, `fs-extra`, `dotenv`, Turf.js (geospatial calculations)
-- **Database:** MongoDB Atlas (`mongodb` driver)
-- **Frontend:** React, Leaflet Maps, HTML5, CSS3
+- **Backend API:** Node.js, Express v5, `fs-extra`, `dotenv`, Turf.js (geospatial calculations)
+- **Database:** MongoDB Atlas (`mongodb` driver v7) with synchronized fallback cache
+- **Frontend:** React, Vite, Leaflet Maps, HTML5, CSS3
+- **Deployment:** Vercel Monorepo (`vercel.json`) + MST Testnet RPC
 
 ---
 
-## 🔗 Network & Smart Contract Specifications
-
-- **Network:** MST Blockchain Testnet
-- **RPC URL:** `https://testnetrpc.mstblockchain.com`
-- **Smart Contracts:**
-  - `LandRegistry.sol`: Claims, attestations, trust scores, disputes
-  - `ReliefFund.sol`: Escrowed budget, damage assessments, dual-officer signoff, payout release
-- **Compiled Artifacts:** `build/LandRegistry.json`, `build/ReliefFund.json`
-- **Implementation Guide:** See [IMPLEMENTATION.md](file:///d:/BMS_MST_hackathon/IMPLEMENTATION.md) for full technical breakdown.
-
----
-
-## 🚀 Quickstart & Setup Guide
+## 🚀 Local Development Setup
 
 ### 1. Installation
 ```bash
@@ -178,183 +172,99 @@ cd teamharmonybms
 npm install
 ```
 
-### 2. Environment Configuration
-Create a `.env` file in the root directory (never commit this file):
+### 2. Environment Configuration (`.env`)
+Create a `.env` file in the root directory:
 ```env
 RPC_URL=https://testnetrpc.mstblockchain.com
-PRIVATE_KEY=0xYOUR_TESTNET_PRIVATE_KEY
-RECIPIENT=0xBRIDGEKEY_TEST_RECIPIENT_ADDRESS
-CONTRACT_ADDRESS=
-RELIEF_CONTRACT_ADDRESS=
+CONTRACT_ADDRESS=0x9A587a9a4b990bb14Cd00D6432487271f00c2A5c
+RELIEF_CONTRACT_ADDRESS=0x41241011dE47C4eb30dFcc45097ceD1f73a7Bd25
 PORT=5000
-MONGO_URI=mongodb+srv://user:password@cluster.mongodb.net/land_rights
+MONGO_URI=mongodb://127.0.0.1:27017/harmonybms
 ```
 
-### 3. Smart Contract Lifecycle Scripts
+### 3. Running Locally
+
+#### **A. Run Blockchain Test Suite**
 ```bash
-# 1. Generate or verify your wallet
-npm run wallet
+# Run in Mock Mode (22/22 Tests Passing)
+CHAIN_MOCK=1 npm run test:chain
 
-# 2. Check testnet connection and balance
-npm run balance
-
-# 3. Compile the Solidity contracts
-npm run compile
-
-# 4. Deploy LandRegistry to MST Testnet (auto-updates .env and SUBMISSION.md)
-npm run deploy
-
-# 5. Deploy ReliefFund (auto-updates .env and SUBMISSION.md)
-npm run deploy:relief
-
-# 6. Run end-to-end interactive demo
-npm run demo
+# Run against MST Testnet
+npm run test:chain
 ```
 
----
-
----
-
-## 🛠️ Backend Setup & Data Layer (Person B — Data & Logic)
-
-The Harmony BMS backend provides the high-performance off-chain data layer, geospatial boundary conflict engine, eligibility and budget scaling algorithms, and REST API connecting the React frontend to the MST Blockchain smart contracts.
-
-### 1. Backend Architecture & Technologies
-- **Runtime & Web Framework:** Node.js (v18+), Express v5
-- **Database Layer:** MongoDB Atlas via the official `mongodb` driver (`^7.6.0`) with automatic in-memory synchronized seed cache.
-- **Geospatial Processing:** Turf.js (`@turf/turf` v7) for polygon intersections, boundary overlap percentages, and point-in-polygon verification.
-- **Cryptographic Hashing:** Node.js native `crypto` SHA-256 for `ownerHash` (`bytes32`), `evidenceHash` (`bytes32`), and `zoneHash` (`bytes32`).
-- **Precision Monetary Math:** Pure JavaScript `BigInt` for wei arithmetic (zero floating-point precision loss).
-- **Multipart Uploads:** Multer with unique timestamped disk storage in `backend/uploads/`.
-- **Central Error Handling:** Standardized format `{ "error": "..." }` across all validation and database exceptions.
-
-### 2. Backend Installation & Running
-
+#### **B. Start Backend API Server**
 ```bash
-# Navigate to the backend directory
 cd backend
-
-# Install dependencies
 npm install
-
-# Configure environment variables in backend/.env
-# PORT=5000
-# MONGO_URI=mongodb+srv://<user>:<password>@cluster.mongodb.net/harmonybms
-# RPC_URL=https://testnetrpc.mstblockchain.com
-
-# Seed database with demonstration parcels & relief schemes
-npm run seed
-# or from root:
-node scripts/seed.js
-
-# Start Express server (runs on port 5000 by default)
 npm start
-
-# Run all 5 unit & integration test suites (100% passing)
-npm test
+# Express Server runs on http://localhost:5000
 ```
 
-### 3. Demonstration Seed Data (`scripts/seed.js`)
-Running `node scripts/seed.js` or `npm run seed` initializes MongoDB Atlas with:
-- **Parcel #1 (Ramesh Gowda):** Status `Verified` (Score: 5 from 2 neighbors + 1 village leader), 2.0 acres in Basavanagudi South, inside flood relief zone. Payout status `Paid` (2.0 MST).
-- **Parcel #2 (Lakshmi Bai):** Status `Pending` (Score: 2), 1.8 acres, inside flood relief zone. Ready for additional community attestations.
-- **Parcel #3 (Anand Kumar):** Status `Disputed` — **Overlaps Parcel #1 by 42%**, demonstrating automated collision detection by Turf.js, auto-calling `chain.dispute()`, and payout freeze pending human arbitration.
-- **Parcel #4 (Smt. Sunitha Rao):** Status `Verified` (Score: 6), 2.2 acres, inside flood relief zone. Payout status `Assessed` (1.1 MST).
-- **Disaster Relief Event (`relief_flood_2026`):** Karnataka SDRF Flood Relief Scheme 2026 covering Basavanagudi South basin with 100 MST budget, 1 MST/acre rate, and 5 MST max cap.
-
----
-
-## 📡 REST API Reference (All 14 Endpoints)
-
-Primary identifier across all collections is the on-chain `claimId`. Monetary amounts are represented strictly as wei integer strings. Coordinate arrays follow GeoJSON `[lon, lat]` standard order.
-
-| # | Method | Endpoint | Description | Request Body / Parameters | On-Chain Function |
-|---|---|---|---|---|---|
-| **1** | `POST` | `/claims` | Submit parcel claim (runs overlap check) | Multipart or JSON `{ ownerName, nationalId, polygon, parcelAreaAcres, notes, beneficiaryAddress }` | `chain.createClaim(ownerHash, evidenceHash, lat, lon)` |
-| **2** | `GET` | `/claims` | List all land parcels for map markers | None | Read from Atlas / Cache |
-| **3** | `GET` | `/claims/:id` | Parcel details, attestations, & dispute status | URL param `:id` (claimId) | Merged with `chain.getClaim(claimId)` |
-| **4** | `POST` | `/claims/:id/attest` | Submit role-weighted community attestation | `{ role: "Neighbor" \| "Village Leader" \| "Accredited NGO", attesterName, notes }` | `chain.attest(claimId, weight)` |
-| **5** | `POST` | `/claims/:id/dispute` | Flag parcel boundary dispute | `{ reason, disputerName, overlappingClaimId }` | `chain.dispute(claimId)` |
-| **6** | `POST` | `/claims/:id/resolve` | Admin / arbiter resolves dispute | `{ restore: true \| false, resolutionNotes, arbiterAddress }` | `chain.resolveDispute(claimId, restore)` |
-| **7** | `GET` | `/verify/:id` | Public QR certificate view (re-checks evidence hash) | URL param `:id` (claimId) | Validates on-chain `evidenceHash` |
-| **8** | `POST` | `/reliefs` | Declare disaster relief event & compute `zoneHash` | `{ name, zone, ratePerAcre, maxPerClaim, budget, disasterType }` | `chain.createRelief(zoneHash, maxPerClaim, budget)` |
-| **9** | `GET` | `/reliefs` | List all active relief schemes | None | Read from Atlas `reliefs` |
-| **10** | `GET` | `/reliefs/:id/eligible` | Verified in-zone claims, damage levels, & scaled payouts | URL param `:id` (reliefId) | Filters `isEligible()`, runs `scaleToBudget()` |
-| **11** | `POST` | `/claims/:id/assess` | Field assessor records damage criteria | `{ reliefId, answers: { depth, structure, duration, type, contents }, confirmedAreaAcres }` | Stores assessment in Atlas `payouts` |
-| **12** | `POST` | `/claims/:id/approve-payout` | Government officer dual-approval | `{ reliefId, officer: "Officer_Name" }` | Advances status to `Approved` upon 2 approvals |
-| **13** | `POST` | `/claims/:id/release-payout` | Release compensation on MST Testnet | `{ reliefId }` | Emits `PayoutReleased`, deducts `remainingBudget` |
-| **14** | `GET` | `/claims/:id/payout` | View payout record & wei compensation | URL param `:id` (claimId) | Read from Atlas `payouts` |
-| **—** | `POST` | `/claims/check-overlap` | Pre-flight live Leaflet map collision check | `{ polygon: GeoJSON, excludeClaimId? }` | Pure Turf.js intersection analysis |
-| **—** | `GET` | `/disputes` | List all currently disputed parcels | None | Queries claims where `status == "Disputed"` |
-
----
-
-## 🧪 Postman & cURL Collections
-
-### 1. Postman Collection
-Import [`Harmony_BMS.postman_collection.json`](./Harmony_BMS.postman_collection.json) or [`backend/postman_collection.json`](./backend/postman_collection.json) directly into Postman, Insomnia, Thunder Client, or Bruno.
-- Configured with environment variable `{{baseUrl}} = http://localhost:5000`.
-- Contains all 14 endpoints pre-configured with sample payloads, query parameters, and documentation.
-
-### 2. cURL Collection
-Execute the ready-to-run shell script [`backend/curl_commands.sh`](./backend/curl_commands.sh):
+#### **C. Start Frontend App**
 ```bash
-chmod +x backend/curl_commands.sh
-./backend/curl_commands.sh
+cd frontend
+npm install
+npm run dev
+# Vite Dev Server runs on http://localhost:3000
 ```
 
-Or execute individual requests:
+---
+
+## 🌐 Deployment to Vercel
+
+The repository includes a production-ready [`vercel.json`](./vercel.json) configuration for instant monorepo deployment:
+
+### **Option 1: Vercel GitHub Integration (Automatic CI/CD)**
+1. Connect your repository `prathamshetty18/teamharmonybms` on [vercel.com](https://vercel.com/new).
+2. Select branch: **`backend`**.
+3. Vercel automatically detects `vercel.json` to deploy:
+   - **Frontend App**: Vite React (`frontend/`)
+   - **Backend API**: Serverless Express Node (`backend/server.js`)
+
+### **Option 2: Vercel CLI**
 ```bash
-# 1. Check all registered claims
-curl -X GET http://localhost:5000/claims
-
-# 2. Test pre-flight overlap on Leaflet map
-curl -X POST http://localhost:5000/claims/check-overlap \
-  -H "Content-Type: application/json" \
-  -d '{"polygon": {"type": "Polygon", "coordinates": [[[77.562, 12.941],[77.564, 12.941],[77.564, 12.943],[77.562, 12.943],[77.562, 12.941]]]}}'
-
-# 3. View public QR verification view
-curl -X GET http://localhost:5000/verify/1
-
-# 4. View eligible claims under flood relief scheme
-curl -X GET http://localhost:5000/reliefs/relief_flood_2026/eligible
+npx vercel
 ```
 
 ---
 
-## 🧩 Core Backend Logic Modules
+## 📡 REST API Reference
 
-1. **Geospatial Overlap Engine ([`backend/overlap.js`](./backend/overlap.js))**:
-   - `findOverlaps(newPolygon, existingClaims)`: Detects boundary collisions using Turf.js.
-   - Ignores shared boundary edges via 0.5% threshold filter.
-   - Generates standardized dispute reasons and administrative audit notes.
-2. **Eligibility & Relief Engine ([`backend/eligibility.js`](./backend/eligibility.js))**:
-   - `damageLevel(disasterType, answers)`: Data-driven damage scoring profiles for floods and earthquakes based on SDRF schedules.
-   - `isEligible(claim, relief)`: Verified, not Disputed, reference point in zone.
-   - `computeAmount(claim, relief, damageLevel)`: Pure `BigInt` wei arithmetic capped at `maxPerClaim`.
-   - `scaleToBudget(amounts, budgetWei)`: Proportional scaling guaranteeing total disbursements never exceed escrowed budget.
-3. **Relief Module ([`backend/relief.js`](./backend/relief.js))**:
-   - `createReliefRecord()`: Validates wei parameters and computes `zoneHash` (`bytes32`).
-   - `getEligibleClaimsForRelief()`: Produces full dashboard summary with eligible claims, damage scores, scaled amounts, and budget shortfall.
-   - `getPayoutRecord()` and `getVerificationCertificate()`.
-4. **Data Store Layer ([`backend/store.js`](./backend/store.js))**:
-   - Dual-persistence engine: queries MongoDB Atlas when connected; seamlessly falls back to synchronized in-memory cache if MongoDB is offline.
+Primary identifier across all endpoints is the on-chain `claimId`. Monetary amounts are handled strictly as wei integer strings.
+
+| Method | Endpoint | Description | Request Body / Params | On-Chain Function |
+|---|---|---|---|---|
+| `POST` | `/claims` | Submit parcel claim (runs overlap check) | `{ ownerName, nationalId, polygon, parcelAreaAcres, beneficiaryAddress }` | `chain.createClaim()` |
+| `GET` | `/claims` | List all land parcels for map markers | None | Read from Atlas |
+| `GET` | `/claims/:id` | Parcel details, attestations, & dispute status | URL param `:id` | `chain.getClaim()` |
+| `POST` | `/claims/:id/attest` | Submit community attestation | `{ role, name, signer }` | `chain.attest()` |
+| `POST` | `/claims/:id/dispute` | Flag parcel boundary dispute | `{ reason }` | `chain.dispute()` |
+| `POST` | `/claims/:id/resolve` | Admin/arbiter resolves dispute | `{ restore: true \| false }` | `chain.resolveDispute()` |
+| `GET` | `/verify/:id` | Public QR proof view | URL param `:id` | Re-verifies `evidenceHash` |
+| `POST` | `/reliefs` | Declare disaster relief scheme | `{ name, zonePolygon, ratePerAcre, maxPerClaimWei, budgetWei }` | `chain.createRelief()` |
+| `GET` | `/reliefs` | List active relief schemes | None | Read from Atlas |
+| `GET` | `/reliefs/:id/eligible` | Verified in-zone eligible claims | URL param `:id` | `isEligible()`, `scaleToBudget()` |
+| `POST` | `/claims/:id/assess` | Record damage assessment | `{ reliefId, damageLevel, damageEvidenceHash }` | `chain.assess()` |
+| `POST` | `/claims/:id/approve-payout` | Dual-officer approval | `{ reliefId, officer, amount, beneficiary }` | `chain.approvePayout()` |
+| `POST` | `/claims/:id/release-payout` | Release MST Testnet compensation | `{ reliefId }` | `chain.release()` |
+| `GET` | `/claims/:id/payout` | View payout record & wei amount | URL param `:id` | `chain.getPayout()` |
 
 ---
 
-## 👥 Team Harmony (BMSCE 2026)
+## 👥 Team Harmony (BMSCE Buildathon 2026)
 
-| Member | Role | Key Responsibilities |
+| Member | Role | Area Owned & Responsibilities |
 |---|---|---|
-| **Srujan** | Blockchain Lead | Smart contracts (`LandRegistry.sol`, `ReliefFund.sol`), deployment, MST SDK, tx verification |
-| **Team Member B** | Backend / API Lead | Express server, polygon overlap algorithm, relief eligibility engine, REST endpoints, `chain.js` |
-| **Team Member C** | Frontend Lead | Leaflet map interface, claim creation workflow, attestation UI, QR certificate view, Gov dashboard |
-| **Team Member D** | Product & Demo Lead | Problem statement, demo script, verification checklist, documentation |
+| **Person A** | Blockchain & Contract Lead | Smart contracts (`LandRegistry.sol`, `ReliefFund.sol`), `chain.js`, multi-wallet role architecture, `routes/chainRoutes.js`, `routes/reliefRoutes.js`, `scripts/testChain.js` |
+| **Person B** | Data & Logic Lead | Express backend, MongoDB Atlas layer, Turf.js overlap algorithm, SDRF parametric scoring, eligibility engine |
+| **Person C** | Frontend Lead | Leaflet map interface, claim creation workflow, attestation UI, QR certificate view, Government dashboard |
+| **Person D** | Product & Demo Lead | Problem statement, demo script, verification checklist, documentation |
 
 ---
 
-## 📄 License & Hackathon Deliverables
+## 📄 License & Deliverables
 
-- **Submission Log:** See [SUBMISSION.md](file:///d:/BMS_MST_hackathon/SUBMISSION.md) for live contract addresses, deployment transaction hashes, and proof receipts.
-- **Implementation Guide:** Detailed roadmap in [IMPLEMENTATION.md](file:///d:/BMS_MST_hackathon/IMPLEMENTATION.md).
-- **License:** MIT License. Built for social impact and disaster resilience.
+- **Submission Log:** See [SUBMISSION.md](./SUBMISSION.md) for live contract addresses, deployment hashes, and on-chain verification proofs.
+- **Design Specifications:** See [design.md](./design.md) for technical sitemap and data architecture.
+- **License:** MIT License. Built for social impact and post-disaster land resilience.
