@@ -32,7 +32,7 @@ export default function NotificationStack({ notifications, onDismiss }) {
               {notif.txHash && (
                 <div style={{ marginTop: '6px' }}>
                   <a
-                    href={notif.explorerUrl || `https://testnetscan.mstblockchain.com/tx/${notif.txHash}`}
+                    href={notif.explorerUrl || `https://testnet.mstscan.com/tx/${notif.txHash}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     style={{

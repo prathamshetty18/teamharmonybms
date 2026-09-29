@@ -110,7 +110,7 @@ export default function AuditLogView({ logs = [] }) {
                   <td>
                     {log.txHash ? (
                       <a
-                        href={log.explorerUrl || `https://testnetscan.mstblockchain.com/tx/${log.txHash}`}
+                        href={log.explorerUrl || `https://testnet.mstscan.com/tx/${log.txHash}`}
                         target="_blank"
                         rel="noreferrer"
                         title="Verify on MST Blockchain Explorer"

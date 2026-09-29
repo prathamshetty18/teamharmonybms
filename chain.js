@@ -153,9 +153,12 @@ function parseLogFromReceipt(receipt, contractInterface, eventName) {
       // ignored
     }
   }
+  return null;
+}
+
 // 4b. Blockchain Transaction Logger (prints terminal output with verified Explorer link)
 function logChainTransaction({ action, targetId, txHash, blockNumber, contractAddress, extra }) {
-  const explorerUrl = `https://testnetscan.mstblockchain.com/tx/${txHash}`;
+  const explorerUrl = `https://testnet.mstscan.com/tx/${txHash}`;
   const rpcVerify = `curl -X POST https://testnetrpc.mstblockchain.com -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"eth_getTransactionByHash","params":["${txHash}"],"id":1}'`;
   
   console.log('\n' + '═'.repeat(80));
@@ -280,10 +283,28 @@ function generateMockTxHash() {
 // 7. Core Exported Chain Functions
 
 /**
- * createClaim(ownerHash, evidenceHash, lat, lon) -> { claimId, txHash }
+ * createClaim(claimant, ownerHash, evidenceHash, lat, lon) -> { claimId, txHash }
  * Signer: registrar
+ * Calls contract with 5 args: (claimant, ownerHash, evidenceHash, latE6, lonE6)
  */
-async function createClaim(ownerHash, evidenceHash, lat, lon) {
+async function createClaim(arg1, arg2, arg3, arg4, arg5) {
+  let claimant, ownerHash, evidenceHash, lat, lon;
+  if (typeof arg1 === 'object' && arg1 !== null && arg1.ownerHash) {
+    ({ claimant, ownerHash, evidenceHash, lat, lon } = arg1);
+  } else if (arg5 !== undefined) {
+    claimant = arg1;
+    ownerHash = arg2;
+    evidenceHash = arg3;
+    lat = arg4;
+    lon = arg5;
+  } else {
+    // Backward-compatible 4-arg signature: (ownerHash, evidenceHash, lat, lon)
+    ownerHash = arg1;
+    evidenceHash = arg2;
+    lat = arg3;
+    lon = arg4;
+  }
+
   const validOwnerHash = validateBytes32(ownerHash, 'ownerHash');
   const validEvidenceHash = validateBytes32(evidenceHash, 'evidenceHash');
 
@@ -301,11 +322,18 @@ async function createClaim(ownerHash, evidenceHash, lat, lon) {
     throw new ChainError('Longitude out of bounds (-180 to +180)', 400);
   }
 
+  validateContract(landRegistryContract, 'LandRegistry');
+  const signer = resolveSigner('registrar');
+  const contractWithSigner = landRegistryContract.connect(signer);
+  const signerAddress = await signer.getAddress();
+  const claimantAddress = (claimant && ethers.isAddress(claimant)) ? claimant : signerAddress;
+
   if (process.env.CHAIN_MOCK === '1') {
     const claimId = (mockState.nextClaimId++).toString();
     const txHash = generateMockTxHash();
     mockState.claims.set(claimId, {
       claimId,
+      claimant: claimantAddress,
       ownerHash: validOwnerHash,
       evidenceHash: validEvidenceHash,
       latE6,
@@ -318,18 +346,14 @@ async function createClaim(ownerHash, evidenceHash, lat, lon) {
       targetId: `Claim #${claimId}`,
       txHash,
       contractAddress: landRegistryAddress || '0x9A587a9a4b990bb14Cd00D6432487271f00c2A5c',
-      extra: `ownerHash: ${validOwnerHash.slice(0, 16)}... | Coordinates: (${latE6 / 1e6}, ${lonE6 / 1e6})`
+      extra: `claimant: ${claimantAddress} | ownerHash: ${validOwnerHash.slice(0, 16)}... | Coordinates: (${latE6 / 1e6}, ${lonE6 / 1e6})`
     });
     return { claimId, txHash };
   }
 
-  validateContract(landRegistryContract, 'LandRegistry');
-  const signer = resolveSigner('registrar');
-  const contractWithSigner = landRegistryContract.connect(signer);
-
-  return enqueueWalletTx(await signer.getAddress(), async () => {
+  return enqueueWalletTx(signerAddress, async () => {
     try {
-      const tx = await contractWithSigner.createClaim(validOwnerHash, validEvidenceHash, latE6, lonE6);
+      const tx = await contractWithSigner.createClaim(claimantAddress, validOwnerHash, validEvidenceHash, latE6, lonE6);
       const receipt = await tx.wait();
       const event = parseLogFromReceipt(receipt, landRegistryContract.interface, 'ClaimCreated');
       const claimId = event ? event.args.claimId.toString() : '0';
@@ -339,11 +363,11 @@ async function createClaim(ownerHash, evidenceHash, lat, lon) {
         txHash: receipt.hash,
         blockNumber: receipt.blockNumber,
         contractAddress: landRegistryAddress,
-        extra: `ownerHash: ${validOwnerHash.slice(0, 16)}... | Coordinates: (${latE6 / 1e6}, ${lonE6 / 1e6})`
+        extra: `claimant: ${claimantAddress} | ownerHash: ${validOwnerHash.slice(0, 16)}... | Coordinates: (${latE6 / 1e6}, ${lonE6 / 1e6})`
       });
       return { claimId, txHash: receipt.hash };
     } catch (err) {
-      handleChainError(err, landRegistryContract.interface);
+      throw new Error(err.reason || err.shortMessage || err.message);
     }
   });
 }
@@ -396,7 +420,7 @@ async function attest(claimId, role, signerParam = 'neighbor1') {
 
   return enqueueWalletTx(await signer.getAddress(), async () => {
     try {
-      const tx = await contractWithSigner.attest(BigInt(claimId), roleNum);
+      const tx = await contractWithSigner.attest(BigInt(claimId));
       const receipt = await tx.wait();
       logChainTransaction({
         action: 'SUBMIT COMMUNITY ATTESTATION (LandRegistry.sol)',
@@ -408,7 +432,7 @@ async function attest(claimId, role, signerParam = 'neighbor1') {
       });
       return { txHash: receipt.hash };
     } catch (err) {
-      handleChainError(err, landRegistryContract.interface);
+      throw new Error(err.reason || err.shortMessage || err.message);
     }
   });
 }
@@ -453,7 +477,7 @@ async function dispute(claimId, signerParam = 'registrar') {
       });
       return { txHash: receipt.hash };
     } catch (err) {
-      handleChainError(err, landRegistryContract.interface);
+      throw new Error(err.reason || err.shortMessage || err.message);
     }
   });
 }
@@ -501,7 +525,7 @@ async function resolveDispute(claimId, restore, signerParam = 'arbiter') {
       });
       return { txHash: receipt.hash };
     } catch (err) {
-      handleChainError(err, landRegistryContract.interface);
+      throw new Error(err.reason || err.shortMessage || err.message);
     }
   });
 }
@@ -545,7 +569,7 @@ async function getClaim(claimId) {
     };
   } catch (err) {
     if (err instanceof ChainError) throw err;
-    handleChainError(err, landRegistryContract.interface);
+    throw new Error(err.reason || err.shortMessage || err.message);
   }
 }
 
@@ -557,7 +581,11 @@ async function createRelief(zoneHash, maxPerClaimWei, budgetWei, expiresAt = 0) 
   const validZoneHash = validateBytes32(zoneHash, 'zoneHash');
   const maxWei = BigInt(maxPerClaimWei.toString());
   const budget = BigInt(budgetWei.toString());
-  const exp = BigInt(expiresAt.toString());
+  let exp = BigInt(expiresAt.toString());
+  const nowSec = BigInt(Math.floor(Date.now() / 1000));
+  if (exp <= nowSec) {
+    exp = nowSec + 86400n * 30n; // Default 30 days future
+  }
 
   if (process.env.CHAIN_MOCK === '1') {
     const reliefId = (mockState.nextReliefId++).toString();
@@ -585,7 +613,7 @@ async function createRelief(zoneHash, maxPerClaimWei, budgetWei, expiresAt = 0) 
 
   return enqueueWalletTx(await signer.getAddress(), async () => {
     try {
-      const tx = await contractWithSigner.createRelief(validZoneHash, maxWei, budget, exp, { value: budget });
+      const tx = await contractWithSigner.createRelief(validZoneHash, maxWei, exp, { value: budget });
       const receipt = await tx.wait();
       const event = parseLogFromReceipt(receipt, reliefFundContract.interface, 'ReliefCreated');
       const reliefId = event ? event.args.reliefId.toString() : '0';
@@ -599,7 +627,7 @@ async function createRelief(zoneHash, maxPerClaimWei, budgetWei, expiresAt = 0) 
       });
       return { reliefId, txHash: receipt.hash };
     } catch (err) {
-      handleChainError(err, reliefFundContract.interface);
+      throw new Error(err.reason || err.shortMessage || err.message);
     }
   });
 }
@@ -646,7 +674,7 @@ async function fundRelief(reliefId, amountWei, signerParam = 'admin') {
       });
       return { txHash: receipt.hash };
     } catch (err) {
-      handleChainError(err, reliefFundContract.interface);
+      throw new Error(err.reason || err.shortMessage || err.message);
     }
   });
 }
@@ -717,7 +745,7 @@ async function assess(claimId, reliefId, damageLevel, damageEvidenceHash, signer
       });
       return { txHash: receipt.hash };
     } catch (err) {
-      handleChainError(err, reliefFundContract.interface);
+      throw new Error(err.reason || err.shortMessage || err.message);
     }
   });
 }
@@ -804,7 +832,7 @@ async function approvePayout(claimId, reliefId, amountWei, beneficiary, officerP
       });
       return { txHash: receipt.hash };
     } catch (err) {
-      handleChainError(err, reliefFundContract.interface);
+      throw new Error(err.reason || err.shortMessage || err.message);
     }
   });
 }
@@ -868,7 +896,7 @@ async function release(claimId, reliefId, signerParam = 'admin') {
       });
       return { txHash: receipt.hash };
     } catch (err) {
-      handleChainError(err, reliefFundContract.interface);
+      throw new Error(err.reason || err.shortMessage || err.message);
     }
   });
 }
@@ -896,10 +924,10 @@ async function getPayout(claimId, reliefId) {
       status: payoutToString[statusNum] || 'Unknown',
       amount: res.amount.toString(),
       beneficiary: res.beneficiary,
-      approvals: Number(res.approvals)
+      approvals: (res.officer2 && res.officer2 !== ethers.ZeroAddress) ? 2 : (res.officer1 && res.officer1 !== ethers.ZeroAddress) ? 1 : 0
     };
   } catch (err) {
-    handleChainError(err, reliefFundContract.interface);
+    throw new Error(err.reason || err.shortMessage || err.message);
   }
 }
 

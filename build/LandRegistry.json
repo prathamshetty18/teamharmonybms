@@ -5,6 +5,7 @@
       "type": "function",
       "name": "createClaim",
       "inputs": [
+        { "name": "claimant", "type": "address" },
         { "name": "ownerHash", "type": "bytes32" },
         { "name": "evidenceHash", "type": "bytes32" },
         { "name": "latE6", "type": "int32" },
@@ -19,8 +20,7 @@
       "type": "function",
       "name": "attest",
       "inputs": [
-        { "name": "claimId", "type": "uint256" },
-        { "name": "role", "type": "uint8" }
+        { "name": "claimId", "type": "uint256" }
       ],
       "outputs": [],
       "stateMutability": "nonpayable"
@@ -61,12 +61,15 @@
         { "name": "claimId", "type": "uint256" }
       ],
       "outputs": [
-        { "name": "status", "type": "uint8" },
-        { "name": "score", "type": "uint256" },
+        { "name": "claimant", "type": "address" },
         { "name": "ownerHash", "type": "bytes32" },
         { "name": "evidenceHash", "type": "bytes32" },
         { "name": "latE6", "type": "int32" },
-        { "name": "lonE6", "type": "int32" }
+        { "name": "lonE6", "type": "int32" },
+        { "name": "score", "type": "uint32" },
+        { "name": "round", "type": "uint32" },
+        { "name": "status", "type": "uint8" },
+        { "name": "createdAt", "type": "uint256" }
       ],
       "stateMutability": "view"
     },
@@ -76,7 +79,7 @@
       "inputs": [
         { "name": "claimId", "type": "uint256", "indexed": true },
         { "name": "claimant", "type": "address", "indexed": true },
-        { "name": "ownerHash", "type": "bytes32", "indexed": false },
+        { "name": "ownerHash", "type": "bytes32", "indexed": true },
         { "name": "evidenceHash", "type": "bytes32", "indexed": false },
         { "name": "latE6", "type": "int32", "indexed": false },
         { "name": "lonE6", "type": "int32", "indexed": false }

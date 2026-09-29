@@ -7,8 +7,7 @@
       "inputs": [
         { "name": "zoneHash", "type": "bytes32" },
         { "name": "maxPerClaim", "type": "uint256" },
-        { "name": "budget", "type": "uint256" },
-        { "name": "expiresAt", "type": "uint256" }
+        { "name": "expiresAt", "type": "uint64" }
       ],
       "outputs": [
         { "name": "reliefId", "type": "uint256" }
@@ -87,9 +86,13 @@
       ],
       "outputs": [
         { "name": "status", "type": "uint8" },
+        { "name": "damageLevel", "type": "uint8" },
+        { "name": "damageEvidenceHash", "type": "bytes32" },
         { "name": "amount", "type": "uint256" },
         { "name": "beneficiary", "type": "address" },
-        { "name": "approvals", "type": "uint256" }
+        { "name": "officer1", "type": "address" },
+        { "name": "officer2", "type": "address" },
+        { "name": "releasedAt", "type": "uint256" }
       ],
       "stateMutability": "view"
     },
@@ -98,10 +101,10 @@
       "name": "ReliefCreated",
       "inputs": [
         { "name": "reliefId", "type": "uint256", "indexed": true },
-        { "name": "zoneHash", "type": "bytes32", "indexed": false },
+        { "name": "zoneHash", "type": "bytes32", "indexed": true },
         { "name": "budget", "type": "uint256", "indexed": false },
         { "name": "maxPerClaim", "type": "uint256", "indexed": false },
-        { "name": "expiresAt", "type": "uint256", "indexed": false }
+        { "name": "expiresAt", "type": "uint64", "indexed": false }
       ],
       "anonymous": false
     },
@@ -132,7 +135,7 @@
         { "name": "claimId", "type": "uint256", "indexed": true },
         { "name": "reliefId", "type": "uint256", "indexed": true },
         { "name": "amount", "type": "uint256", "indexed": false },
-        { "name": "beneficiary", "type": "address", "indexed": true },
+        { "name": "beneficiary", "type": "address", "indexed": false },
         { "name": "officer", "type": "address", "indexed": false }
       ],
       "anonymous": false

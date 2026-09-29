@@ -16,7 +16,7 @@ export function generateBlockchainTxHash() {
 
 // Log blockchain transaction to console & terminal format
 export function emitBlockchainTxLog({ action, targetId, txHash, blockNumber, contractAddress, extra }) {
-  const explorerUrl = `https://testnetscan.mstblockchain.com/tx/${txHash}`;
+  const explorerUrl = `https://testnet.mstscan.com/tx/${txHash}`;
   const rpcVerify = `curl -X POST https://testnetrpc.mstblockchain.com -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"eth_getTransactionByHash","params":["${txHash}"],"id":1}'`;
   
   console.log(
@@ -108,7 +108,7 @@ function logAuditAction({ action, targetId, targetType, details, actorName, acto
     actorName: actorName || 'System',
     actorRole: actorRole || 'ADMIN',
     txHash,
-    explorerUrl: `https://testnetscan.mstblockchain.com/tx/${txHash}`,
+    explorerUrl: `https://testnet.mstscan.com/tx/${txHash}`,
     timestamp: new Date().toISOString(),
     displayTime: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ', ' + new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
   };
@@ -257,7 +257,7 @@ export const api = {
       blockNumber: 5786200 + Math.floor(Math.random() * 5000),
       explorerUrl: ''
     };
-    newParcel.explorerUrl = `https://testnetscan.mstblockchain.com/tx/${newParcel.txHash}`;
+    newParcel.explorerUrl = `https://testnet.mstscan.com/tx/${newParcel.txHash}`;
 
     emitBlockchainTxLog({
       action: 'RECORD LAND CLAIM (LandRegistry.sol::createClaim)',
@@ -362,7 +362,7 @@ export const api = {
     const approvalBlock = 5786200 + Math.floor(Math.random() * 5000);
     p.approvalTxHash = approvalTxHash;
     p.approvalBlock = approvalBlock;
-    p.explorerUrl = `https://testnetscan.mstblockchain.com/tx/${approvalTxHash}`;
+    p.explorerUrl = `https://testnet.mstscan.com/tx/${approvalTxHash}`;
     p.txHash = approvalTxHash;
 
     emitBlockchainTxLog({
@@ -504,7 +504,7 @@ export const api = {
       blockNumber: 5786200 + Math.floor(Math.random() * 5000),
       explorerUrl: ''
     };
-    newApp.explorerUrl = `https://testnetscan.mstblockchain.com/tx/${newApp.txHash}`;
+    newApp.explorerUrl = `https://testnet.mstscan.com/tx/${newApp.txHash}`;
 
     emitBlockchainTxLog({
       action: 'LODGE DISASTER RELIEF APPLICATION (ReliefFund.sol)',
@@ -586,7 +586,7 @@ export const api = {
     const approvalBlock = 5786200 + Math.floor(Math.random() * 5000);
     app.approvalTxHash = approvalTxHash;
     app.approvalBlock = approvalBlock;
-    app.explorerUrl = `https://testnetscan.mstblockchain.com/tx/${approvalTxHash}`;
+    app.explorerUrl = `https://testnet.mstscan.com/tx/${approvalTxHash}`;
 
     emitBlockchainTxLog({
       action: 'SANCTION DISASTER RELIEF DBT (ReliefFund.sol)',

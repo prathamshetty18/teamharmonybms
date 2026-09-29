@@ -150,7 +150,7 @@ export default function QRCertificateModal({ isOpen, onClose, parcel }) {
                   ⛓️ MST Blockchain Testnet Proof:
                 </span>
                 <a 
-                  href={parcel.explorerUrl || `https://testnetscan.mstblockchain.com/tx/${parcel.approvalTxHash || parcel.txHash || '0x3dd8689e5b428bde63bf806edbdfcbdfaf759dd7082b8ff15d4afe0cc5201892'}`}
+                  href={parcel.explorerUrl || `https://testnet.mstscan.com/tx/${parcel.approvalTxHash || parcel.txHash || '0x3dd8689e5b428bde63bf806edbdfcbdfaf759dd7082b8ff15d4afe0cc5201892'}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{ fontSize: '11px', fontWeight: 800, color: '#15803D', textDecoration: 'underline' }}
