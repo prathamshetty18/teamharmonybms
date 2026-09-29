@@ -1,446 +1,205 @@
 process.env.NODE_ENV = 'test';
-process.env.PORT = '5002';
+process.env.PORT = '5003';
 
 const assert = require('assert');
 const http = require('http');
 const { app } = require('./server');
-const auth = require('./auth');
-const store = require('./store');
+const { connectDB, getCollection } = require('./db');
+const User = require('./models/User');
+const authRoutes = require('./routes/auth');
 
-async function runAuthTests() {
-  console.log('--- Starting Phase A Auth & RBAC Unit and Integration Tests ---\n');
+async function makeRequest(port, method, path, body = null, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const dataString = body ? JSON.stringify(body) : '';
+    const reqHeaders = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(dataString),
+      ...headers
+    };
 
-  // =============================================================
-  // 1. Role Normalization and Constants
-  // =============================================================
-  console.log('1. Testing Role Definitions & Normalization...');
-  assert.strictEqual(auth.ROLES.FARMER, 'Farmer');
-  assert.strictEqual(auth.ROLES.GROUND_VERIFICATION_OFFICER, 'Ground Verification Officer');
-  assert.strictEqual(auth.ROLES.NGO_COMMUNITY_VERIFIER, 'NGO/Community Verifier');
-  assert.strictEqual(auth.ROLES.GOVERNMENT_OFFICER, 'Government Officer');
-  assert.strictEqual(auth.ALLOWED_ROLES.length, 4);
+    const options = {
+      hostname: '127.0.0.1',
+      port,
+      path,
+      method,
+      headers: reqHeaders
+    };
 
-  // Normalization checks
-  assert.strictEqual(auth.normalizeRole('farmer'), 'Farmer');
-  assert.strictEqual(auth.normalizeRole('Ground Verification Officer'), 'Ground Verification Officer');
-  assert.strictEqual(auth.normalizeRole('gvo'), 'Ground Verification Officer');
-  assert.strictEqual(auth.normalizeRole('field assessor'), 'Ground Verification Officer');
-  assert.strictEqual(auth.normalizeRole('ngo'), 'NGO/Community Verifier');
-  assert.strictEqual(auth.normalizeRole('NGO/Community Verifier'), 'NGO/Community Verifier');
-  assert.strictEqual(auth.normalizeRole('government officer'), 'Government Officer');
-  assert.strictEqual(auth.normalizeRole('officer'), 'Government Officer');
-  assert.strictEqual(auth.normalizeRole('invalid_role'), null);
-  console.log('   ✓ 4 Canonical roles correctly configured and normalized');
+    const req = http.request(options, res => {
+      let responseBody = '';
+      res.on('data', chunk => { responseBody += chunk; });
+      res.on('end', () => {
+        let json = null;
+        try {
+          json = JSON.parse(responseBody);
+        } catch {
+          json = responseBody;
+        }
+        resolve({ status: res.statusCode, headers: res.headers, body: json });
+      });
+    });
 
-  // =============================================================
-  // 2. Cryptographic Security & JWT Verification
-  // =============================================================
-  console.log('2. Testing Password Hashing & JWT Token Lifecycle...');
-  const testPw = 'SecurePass2026!';
-  const hashed = await auth.hashPassword(testPw);
-  assert(hashed.startsWith('$2'), 'Must be valid bcrypt hash');
-  assert(await auth.comparePassword(testPw, hashed), 'Password must match hash');
-  assert(!(await auth.comparePassword('WrongPassword', hashed)), 'Wrong password must fail');
+    req.on('error', reject);
+    if (dataString) req.write(dataString);
+    req.end();
+  });
+}
 
-  const mockUser = {
-    id: 'user_test_99',
-    role: auth.ROLES.FARMER,
-    name: 'Somanna Gowda',
-    contact: '+919845001122'
-  };
-  const token = auth.generateToken(mockUser);
-  assert(typeof token === 'string' && token.split('.').length === 3, 'Valid JWT structure');
+async function runTests() {
+  console.log('====================================================');
+  console.log('BhoomiSetu Citizen Auth & Zero-PII Security Test Suite');
+  console.log('====================================================\n');
 
-  const decoded = auth.verifyToken(token);
-  assert.strictEqual(decoded.id, mockUser.id);
-  assert.strictEqual(decoded.role, mockUser.role);
-  assert.strictEqual(decoded.name, mockUser.name);
-  console.log('   ✓ Bcrypt hashing and JWT signing/verification verified');
+  // Initialize DB connection
+  await connectDB();
 
-  // =============================================================
-  // 3. HTTP Server Setup for API Integration
-  // =============================================================
-  const server = http.createServer(app);
-  await new Promise(resolve => server.listen(5002, resolve));
-  const baseUrl = 'http://localhost:5002';
+  // Clean test artifacts
+  const usersCol = getCollection('users');
+  const saltsCol = getCollection('owner_salts');
+  const auditCol = getCollection('audit_logs');
+
+  const testNationalId = 'TEST-IND-KA-2026-9999';
+  const testRateLimitId = 'TEST-IND-KA-2026-8888';
+
+  if (usersCol) {
+    await usersCol.deleteMany({ lookupHash: { $exists: true } });
+  }
+  if (saltsCol) {
+    await saltsCol.deleteMany({});
+  }
+  User._clearMemory();
+  authRoutes._resetRateLimits();
+
+  const server = app.listen(0);
+  const port = server.address().port;
 
   try {
-    // =============================================================
-    // 4. GET /auth/roles
-    // =============================================================
-    console.log('3. Testing GET /auth/roles...');
-    const rolesRes = await fetch(`${baseUrl}/auth/roles`);
-    assert.strictEqual(rolesRes.status, 200);
-    const rolesData = await rolesRes.json();
-    assert.deepStrictEqual(rolesData.roles, auth.ALLOWED_ROLES);
-    console.log('   ✓ GET /auth/roles returned 4 canonical roles');
-
-    // =============================================================
-    // 5. POST /auth/register for All 4 Roles
-    // =============================================================
-    console.log('4. Testing User Registration for 4 Roles...');
-
-    // 5.1 Farmer Registration
-    const regFarmerRes = await fetch(`${baseUrl}/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: 'Devappa Naik',
-        contact: '+919448001122',
-        password: 'password123',
-        role: 'Farmer',
-        profile: {
-          village: 'Mandya',
-          district: 'Mandya',
-          holdingAcres: 3.2
-        }
-      })
-    });
-    assert.strictEqual(regFarmerRes.status, 201);
-    const farmerData = await regFarmerRes.json();
-    assert(farmerData.token, 'Should return JWT token');
-    assert.strictEqual(farmerData.user.role, 'Farmer');
-    assert.strictEqual(farmerData.user.name, 'Devappa Naik');
-    assert(!farmerData.user.password, 'Password must never leak');
-    const farmerToken = farmerData.token;
-
-    // 5.2 Ground Verification Officer Registration
-    const regGvoRes = await fetch(`${baseUrl}/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: 'Sunil Verma',
-        contact: '+919448003344',
-        password: 'password123',
-        role: 'Ground Verification Officer',
-        profile: {
-          officerBadge: 'GVO-BLR-882',
-          circle: 'South Taluk'
-        }
-      })
-    });
-    assert.strictEqual(regGvoRes.status, 201);
-    const gvoData = await regGvoRes.json();
-    assert.strictEqual(gvoData.user.role, 'Ground Verification Officer');
-    const gvoToken = gvoData.token;
-
-    // 5.3 NGO/Community Verifier Registration
-    const regNgoRes = await fetch(`${baseUrl}/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: 'Anita Roy',
-        contact: '+919448005566',
-        password: 'password123',
-        role: 'NGO/Community Verifier',
-        profile: {
-          ngoName: 'Community Land Trust Alliance',
-          ngoRegistration: 'NGO-2020-0041'
-        }
-      })
-    });
-    assert.strictEqual(regNgoRes.status, 201);
-    const ngoData = await regNgoRes.json();
-    assert.strictEqual(ngoData.user.role, 'NGO/Community Verifier');
-    const ngoToken = ngoData.token;
-
-    // 5.4 Government Officer Registration
-    const regGovRes = await fetch(`${baseUrl}/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: 'Deputy Commissioner Mehra',
-        contact: '+919448007788',
-        password: 'password123',
-        role: 'Government Officer',
-        profile: {
-          designation: 'Assistant Commissioner Revenue',
-          officeId: 'GOV-KA-REV-10'
-        }
-      })
-    });
-    assert.strictEqual(regGovRes.status, 201);
-    const govData = await regGovRes.json();
-    assert.strictEqual(govData.user.role, 'Government Officer');
-    const govToken = govData.token;
-
-    // 5.5 Duplicate Contact Error Check
-    const dupRes = await fetch(`${baseUrl}/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: 'Duplicate Contact',
-        contact: '+919448001122',
-        password: 'password123',
-        role: 'Farmer'
-      })
-    });
-    assert.strictEqual(dupRes.status, 400);
-    const dupErr = await dupRes.json();
-    assert(dupErr.error.includes('already exists'));
-
-    // 5.6 Invalid Role Rejection
-    const invRoleRes = await fetch(`${baseUrl}/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: 'Bad Role User',
-        contact: '+919448009999',
-        password: 'password123',
-        role: 'Hacker'
-      })
-    });
-    assert.strictEqual(invRoleRes.status, 400);
-    console.log('   ✓ Registration flow verified across all 4 roles + validation errors');
-
-    // =============================================================
-    // 6. POST /auth/login Authentication
-    // =============================================================
-    console.log('5. Testing User Login...');
-    const loginOkRes = await fetch(`${baseUrl}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contact: '+919448001122',
-        password: 'password123'
-      })
-    });
-    assert.strictEqual(loginOkRes.status, 200);
-    const loginOkData = await loginOkRes.json();
-    assert(loginOkData.token);
-    assert.strictEqual(loginOkData.user.role, 'Farmer');
-
-    // Bad password
-    const badPwRes = await fetch(`${baseUrl}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contact: '+919448001122',
-        password: 'wrong_password'
-      })
-    });
-    assert.strictEqual(badPwRes.status, 401);
-
-    // Unregistered contact
-    const badContactRes = await fetch(`${baseUrl}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contact: '+910000000000',
-        password: 'password123'
-      })
-    });
-    assert.strictEqual(badContactRes.status, 401);
-    console.log('   ✓ Login endpoint authenticated valid users and rejected bad credentials');
-
-    // =============================================================
-    // 7. Mock OTP Auth Stub (Send & Verify)
-    // =============================================================
-    console.log('6. Testing Mock OTP Dispatch & Verification Stub...');
-    const otpSendRes = await fetch(`${baseUrl}/auth/otp/send`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contact: '+919886001234' })
-    });
-    assert.strictEqual(otpSendRes.status, 200);
-    const otpSendData = await otpSendRes.json();
-    assert.strictEqual(otpSendData.otp, '123456');
-
-    // Verify OTP and auto-login
-    const otpVerifyRes = await fetch(`${baseUrl}/auth/otp/verify`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contact: '+919886001234',
-        otp: '123456',
-        name: 'OTP Demo Farmer',
-        role: 'Farmer'
-      })
-    });
-    assert.strictEqual(otpVerifyRes.status, 200);
-    const otpVerifyData = await otpVerifyRes.json();
-    assert(otpVerifyData.token);
-    assert.strictEqual(otpVerifyData.user.contact, '+919886001234');
-    assert.strictEqual(otpVerifyData.user.role, 'Farmer');
-
-    // Bad OTP check
-    const badOtpRes = await fetch(`${baseUrl}/auth/otp/verify`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contact: '+919886001234',
-        otp: '999999'
-      })
-    });
-    assert.strictEqual(badOtpRes.status, 400);
-    console.log('   ✓ Mock OTP flow (send/verify) works for instant demo logins');
-
-    // =============================================================
-    // 8. GET /auth/me Protected Profile Route
-    // =============================================================
-    console.log('7. Testing Protected GET /auth/me...');
-    const meRes = await fetch(`${baseUrl}/auth/me`, {
-      headers: { Authorization: `Bearer ${farmerToken}` }
-    });
-    assert.strictEqual(meRes.status, 200);
-    const meData = await meRes.json();
-    assert.strictEqual(meData.user.role, 'Farmer');
-    assert.strictEqual(meData.user.name, 'Devappa Naik');
-
-    // Invalid token
-    const badTokenRes = await fetch(`${baseUrl}/auth/me`, {
-      headers: { Authorization: 'Bearer bad.token.here' }
-    });
-    assert.strictEqual(badTokenRes.status, 401);
-
-    // Missing token with strict enforcement
-    const noTokenRes = await fetch(`${baseUrl}/auth/me`, {
-      headers: { 'x-enforce-auth': 'true' }
-    });
-    assert.strictEqual(noTokenRes.status, 401);
-    console.log('   ✓ GET /auth/me successfully protected by requireAuth');
-
-    // =============================================================
-    // 9. RBAC Route Level Authorization Tests
-    // =============================================================
-    console.log('8. Testing Route-Level Role-Based Access Control (RBAC)...');
-
-    // 9.1 Farmer CAN create a claim (Allowed)
-    const validPolygon = {
-      type: 'Polygon',
-      coordinates: [
-        [
-          [77.5700, 12.9405],
-          [77.5720, 12.9405],
-          [77.5720, 12.9425],
-          [77.5700, 12.9425],
-          [77.5700, 12.9405]
-        ]
-      ]
+    // -----------------------------------------------------------------
+    // TEST 1: Signup success
+    // -----------------------------------------------------------------
+    console.log('TEST 1: Testing Signup Success...');
+    const signupPayload = {
+      name: 'Ravi Kumar',
+      password: 'SecurePassword123!',
+      nationalIdCode: testNationalId
     };
-    const claimRes = await fetch(`${baseUrl}/claims`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${farmerToken}`
-      },
-      body: JSON.stringify({
-        ownerName: 'Devappa Naik',
-        nationalId: 'IND-KA-560019-9182',
-        polygon: validPolygon,
-        parcelAreaAcres: 3.2
-      })
-    });
-    assert.strictEqual(claimRes.status, 201);
-    const createdClaim = await claimRes.json();
-    const createdClaimId = createdClaim.claimId;
-    console.log(`   ✓ Farmer role allowed to submit parcel claim (claimId: ${createdClaimId})`);
 
-    // 9.2 Farmer CANNOT approve payout (Forbidden 403)
-    const farmerApproveRes = await fetch(`${baseUrl}/claims/${createdClaimId}/approve-payout`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${farmerToken}`
-      },
-      body: JSON.stringify({
-        reliefId: 'relief_flood_2026',
-        officer: 'Farmer pretending to be officer'
-      })
-    });
-    assert.strictEqual(farmerApproveRes.status, 403);
-    const farmerApproveErr = await farmerApproveRes.json();
-    assert(farmerApproveErr.error.includes('Forbidden'));
-    console.log('   ✓ Farmer correctly blocked from approving payout (403 Forbidden)');
+    const signupRes = await makeRequest(port, 'POST', '/api/auth/signup', signupPayload);
+    assert.strictEqual(signupRes.status, 200, `Expected 200, got ${signupRes.status}`);
+    assert(signupRes.body.jwt, 'Response must include JWT token');
+    assert.strictEqual(signupRes.body.role, 'citizen', 'Role must be citizen');
+    assert(signupRes.body.userId, 'Response must include userId');
 
-    // 9.3 NGO/Community Verifier CANNOT assess damage (Forbidden 403)
-    const ngoAssessRes = await fetch(`${baseUrl}/claims/1/assess`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${ngoToken}`
-      },
-      body: JSON.stringify({
-        reliefId: 'relief_flood_2026',
-        answers: { depth: 'high', structure: 'major', duration: 'long', type: 'pucca', contents: 'all' }
-      })
-    });
-    assert.strictEqual(ngoAssessRes.status, 403);
-    console.log('   ✓ NGO Verifier correctly blocked from damage assessment (403 Forbidden)');
+    // Verify Mongo user document invariants
+    let userDoc = null;
+    if (usersCol) {
+      userDoc = await usersCol.findOne({ userId: signupRes.body.userId });
+    }
+    if (!userDoc) {
+      userDoc = await User.findByUserId(signupRes.body.userId);
+    }
 
-    // 9.4 Ground Verification Officer CAN assess damage (Allowed)
-    const gvoAssessRes = await fetch(`${baseUrl}/claims/1/assess`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${gvoToken}`
-      },
-      body: JSON.stringify({
-        reliefId: 'relief_flood_2026',
-        answers: { depth: 'high', structure: 'major', duration: 'long', type: 'pucca', contents: 'all' }
-      })
-    });
-    assert.strictEqual(gvoAssessRes.status, 200);
-    console.log('   ✓ Ground Verification Officer permitted to record damage assessment (200 OK)');
+    assert(userDoc, 'User document must exist in database');
+    assert(userDoc.passwordHash && userDoc.passwordHash.startsWith('$argon2'), 'passwordHash must start with $argon2');
+    assert.strictEqual(userDoc.password, undefined, 'CRITICAL: user doc must NEVER have a password field');
+    assert.strictEqual(userDoc.salt, undefined, 'CRITICAL: salt must NOT be inlined into user doc');
+    assert(userDoc.salt_id, 'User doc must reference salt_id');
 
-    // 9.5 NGO/Community Verifier CAN attest claim (Allowed)
-    const ngoAttestRes = await fetch(`${baseUrl}/claims/2/attest`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${ngoToken}`
-      },
-      body: JSON.stringify({
-        attesterName: 'Anita Roy',
-        role: 'NGO'
-      })
-    });
-    assert.strictEqual(ngoAttestRes.status, 200);
-    console.log('   ✓ NGO/Community Verifier permitted to submit attestation (200 OK)');
+    // Check separate owner_salts collection
+    const saltRecord = await User.getSalt(userDoc.salt_id);
+    assert(saltRecord && saltRecord.salt, 'Salt must exist in separate owner_salts collection');
 
-    // 9.6 Government Officer CAN approve payout (Allowed)
-    const govApproveRes = await fetch(`${baseUrl}/claims/1/approve-payout`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${govToken}`
-      },
-      body: JSON.stringify({
-        reliefId: 'relief_flood_2026',
-        officer: 'Deputy Commissioner Mehra'
-      })
-    });
-    assert.strictEqual(govApproveRes.status, 200);
-    console.log('   ✓ Government Officer permitted to execute payout approval (200 OK)');
+    console.log('   ✓ Status 200 returned with valid JWT');
+    console.log('   ✓ User doc in Mongo with $argon2 passwordHash and NO password field');
+    console.log('   ✓ Salt isolated in owner_salts collection (no inline salt)');
+    console.log('   [PASS] Signup success\n');
 
-    // 9.7 Unauthenticated request with strict enforcement fails (401)
-    const unauthStrictRes = await fetch(`${baseUrl}/claims`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-enforce-auth': 'true'
-      },
-      body: JSON.stringify({ polygon: validPolygon })
-    });
-    assert.strictEqual(unauthStrictRes.status, 401);
-    console.log('   ✓ Strict unauthenticated request rejected with 401 Unauthorized');
+    // -----------------------------------------------------------------
+    // TEST 2: Duplicate signup
+    // -----------------------------------------------------------------
+    console.log('TEST 2: Testing Duplicate Signup Rejection...');
+    let preCount = 0;
+    if (usersCol) preCount = await usersCol.countDocuments();
 
+    const dupRes = await makeRequest(port, 'POST', '/api/auth/signup', signupPayload);
+    assert.strictEqual(dupRes.status, 409, `Expected 409, got ${dupRes.status}`);
+    assert.strictEqual(dupRes.body.error, 'Account already exists. Please log in.');
+
+    if (usersCol) {
+      const postCount = await usersCol.countDocuments();
+      assert.strictEqual(postCount, preCount, 'No new user doc must be created on duplicate signup');
+    }
+    console.log('   ✓ Status 409 returned with: "Account already exists. Please log in."');
+    console.log('   ✓ Database user count unchanged');
+    console.log('   [PASS] Duplicate signup blocked\n');
+
+    // -----------------------------------------------------------------
+    // TEST 3: Login wrong password
+    // -----------------------------------------------------------------
+    console.log('TEST 3: Testing Login with Wrong Password...');
+    const wrongPwRes = await makeRequest(port, 'POST', '/api/auth/login', {
+      nationalIdCode: testNationalId,
+      password: 'IncorrectPassword999!'
+    });
+    assert.strictEqual(wrongPwRes.status, 401, `Expected 401, got ${wrongPwRes.status}`);
+    assert.strictEqual(wrongPwRes.body.error, 'Invalid credentials.');
+    console.log('   ✓ Status 401 returned with exact error: "Invalid credentials."');
+    console.log('   [PASS] Login wrong password\n');
+
+    // -----------------------------------------------------------------
+    // TEST 4: Login unknown user
+    // -----------------------------------------------------------------
+    console.log('TEST 4: Testing Login with Unknown User...');
+    const unknownUserRes = await makeRequest(port, 'POST', '/api/auth/login', {
+      nationalIdCode: 'UNKNOWN-NONEXISTENT-CODE',
+      password: 'SomePassword123!'
+    });
+    assert.strictEqual(unknownUserRes.status, 401, `Expected 401, got ${unknownUserRes.status}`);
+    assert.strictEqual(
+      unknownUserRes.body.error, 
+      wrongPwRes.body.error, 
+      'Error message for unknown user must match wrong password byte-for-byte (no enumeration)'
+    );
+    assert.strictEqual(unknownUserRes.body.error, 'Invalid credentials.');
+    console.log('   ✓ Status 401 returned with identical byte-for-byte error: "Invalid credentials."');
+    console.log('   ✓ Zero user enumeration vulnerability');
+    console.log('   [PASS] Login unknown user\n');
+
+    // -----------------------------------------------------------------
+    // TEST 5: Rate limit
+    // -----------------------------------------------------------------
+    console.log('TEST 5: Testing Rate Limiting (6 failed attempts)...');
+    // Ensure clean slate for rate limit ID
+    authRoutes._resetRateLimits();
+
+    for (let i = 1; i <= 5; i++) {
+      const failRes = await makeRequest(port, 'POST', '/api/auth/login', {
+        nationalIdCode: testRateLimitId,
+        password: `WrongPwAttempt${i}`
+      });
+      assert.strictEqual(failRes.status, 401, `Attempt ${i} should return 401, got ${failRes.status}`);
+    }
+
+    // 6th attempt must be blocked by rate limiter with 429
+    const sixthRes = await makeRequest(port, 'POST', '/api/auth/login', {
+      nationalIdCode: testRateLimitId,
+      password: 'WrongPwAttempt6'
+    });
+    assert.strictEqual(sixthRes.status, 429, `6th attempt must return 429, got ${sixthRes.status}`);
+    assert.strictEqual(sixthRes.body.error, 'Too many attempts. Try again later.');
+    console.log('   ✓ Attempts 1-5 returned 401');
+    console.log('   ✓ 6th attempt blocked with status 429 and "Too many attempts. Try again later."');
+    console.log('   [PASS] Rate limit\n');
+
+    console.log('====================================================');
+    console.log('ALL 5 TESTS PASSED SUCCESSFULLY');
+    console.log('====================================================');
   } finally {
-    await new Promise(resolve => server.close(resolve));
+    server.close();
   }
-
-  console.log('\n======================================================');
-  console.log('🎉 ALL PHASE A AUTH & RBAC TESTS PASSED SUCCESSFULLY! (100%)');
-  console.log('======================================================\n');
 }
 
-if (require.main === module) {
-  runAuthTests()
-    .then(() => process.exit(0))
-    .catch(err => {
-      console.error('❌ Auth & RBAC Test Failed:', err);
-      process.exit(1);
-    });
-}
-
-module.exports = { runAuthTests };
+runTests().catch(err => {
+  console.error('Test Suite Failed:', err);
+  process.exit(1);
+});

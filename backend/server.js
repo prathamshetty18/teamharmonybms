@@ -8,6 +8,7 @@ const multer = require('multer');
 
 const { connectDB } = require('./db');
 const createClaimsRoutes = require('./routes/claimsRoutes');
+const citizenAuthRoutes = require('./routes/auth');
 const authRoutes = require('./routes/authRoutes');
 const createDocumentRoutes = require('./routes/documentRoutes');
 const createVerificationRoutes = require('./routes/verificationRoutes');
@@ -69,6 +70,8 @@ app.get('/health', (req, res) => {
 });
 
 // Mount authentication routes
+app.use('/auth', citizenAuthRoutes);
+app.use('/api/auth', citizenAuthRoutes);
 app.use('/auth', authRoutes);
 app.use('/api/auth', authRoutes);
 
@@ -136,6 +139,40 @@ app.use((err, req, res, next) => {
   });
 });
 
+async function seedDefaultOfficer() {
+  try {
+    const crypto = require('crypto');
+    const argon2 = require('argon2');
+    const User = require('./models/User');
+    const PEPPER = process.env.PEPPER || 'harmony-bms-national-id-pepper-secret-2026';
+
+    const officerBadge = 'GOV-OFFICER-001';
+    const lookupHash = crypto.createHash('sha256').update(officerBadge + PEPPER).digest('hex');
+    const existing = await User.findByLookupHash(lookupHash);
+    if (!existing) {
+      const saltBytes = crypto.randomBytes(32);
+      const salt = saltBytes.toString('hex');
+      const salt_id = 'salt_' + crypto.randomUUID();
+      await User.saveSalt(salt_id, salt);
+      const passwordHash = await argon2.hash('Password@1234', { type: argon2.argon2id });
+      const nationalIdHash = crypto.createHash('sha256').update(officerBadge + salt).digest('hex');
+      await User.create({
+        userId: 'usr_gov_officer_default',
+        name: 'Officer Sharma',
+        passwordHash,
+        nationalIdHash,
+        salt_id,
+        lookupHash,
+        role: 'government',
+        createdAt: new Date()
+      });
+      console.log('[Auth Seed] Default government official registered: GOV-OFFICER-001 (Password: Password@1234)');
+    }
+  } catch (err) {
+    console.warn('[Auth Seed] Notice during default officer seed:', err.message);
+  }
+}
+
 // Start server
 let server = null;
 if (process.env.NODE_ENV !== 'test') {
@@ -144,6 +181,7 @@ if (process.env.NODE_ENV !== 'test') {
     console.log(`[Server] Environment: PORT=${PORT}`);
     // Attempt database connection on startup
     await connectDB();
+    await seedDefaultOfficer();
   });
 }
 
