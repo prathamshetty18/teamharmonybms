@@ -1,3 +1,4 @@
+# Node & JS
 node_modules/
 .env
 .env.*
@@ -5,3 +6,39 @@ node_modules/
 uploads/*
 !uploads/.gitkeep
 *.log
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+.Python
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+venv/
+.venv/
+ENV/
+env/
+
+# Databases
+*.sqlite3
+*.db
+
+# IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Operating System
+.DS_Store
+Thumbs.db
