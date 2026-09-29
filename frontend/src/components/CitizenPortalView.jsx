@@ -207,8 +207,8 @@ export default function CitizenPortalView({
 
     if (!isConsensusThresholdMet) {
       setClaimSubmitError(
-        `Cannot record land claim: Community consensus score (${consensusScore}/5) is below the statutory threshold of 5/5. ` +
-        `Under cadastral regulations, land claims must achieve consensus by adding boundary neighbour attestations (with Aadhaar number) and/or certified NGO endorsement.`
+        `Cannot record land claim: Community consensus score (Score ${consensusScore} (≥5 required)) is below statutory threshold. ` +
+        `Under cadastral regulations, land claims must achieve consensus by adding boundary neighbour attestations (with record ID) and/or certified NGO endorsement.`
       );
       return;
     }
@@ -227,7 +227,7 @@ export default function CitizenPortalView({
         farmerName: citizenName,
         citizenName: citizenName,
         mobile: mobileNumber || '+91 98000 00000',
-        idDetails: idDetails || `Aadhaar of ${citizenName}`,
+        idDetails: idDetails || `Record ID of ${citizenName}`,
         state: claimState,
         district: claimDistrict,
         taluk: claimTaluk,
@@ -525,7 +525,7 @@ export default function CitizenPortalView({
                             <div style={{ fontWeight: 800, fontFamily: 'var(--font-mono)' }}>{claim.landId}</div>
                             <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{claim.applicationId}</div>
                             <a
-                              href={claim.explorerUrl || `https://testnetscan.mstblockchain.com/tx/${claim.txHash || '0x3dd8689e5b428bde63bf806edbdfcbdfaf759dd7082b8ff15d4afe0cc5201892'}`}
+                              href={claim.explorerUrl || `https://testnet.mstscan.com/tx/${claim.txHash || '0x3dd8689e5b428bde63bf806edbdfcbdfaf759dd7082b8ff15d4afe0cc5201892'}`}
                               target="_blank"
                               rel="noopener noreferrer"
                               style={{
@@ -889,7 +889,7 @@ export default function CitizenPortalView({
 
               <div className="form-group">
                 <label className="form-label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span>Identity Document / Aadhaar</span>
+                  <span>Identity Document / Record ID</span>
                   {idDetails && (
                     <span style={{ fontSize: '11px', color: '#166534', fontWeight: 600 }}>
                       ✓ Auto-filled from Registration
@@ -899,7 +899,7 @@ export default function CitizenPortalView({
                 <input 
                   type="text" 
                   className="form-input" 
-                  placeholder="e.g. Aadhaar: XXXX-XXXX-4912" 
+                  placeholder="e.g. Record ID: XXXX-XXXX-4912" 
                   value={idDetails} 
                   onChange={e => {
                     const val = e.target.value;
@@ -1011,7 +1011,7 @@ export default function CitizenPortalView({
                   </span>
                 </h4>
                 <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                  Provide names & Aadhaar numbers of adjoining parcel owners (max 3) to establish boundary consensus
+                  Provide names & record IDs of adjoining parcel owners (max 3) to establish boundary consensus
                 </span>
               </div>
 
@@ -1078,7 +1078,7 @@ export default function CitizenPortalView({
                           </span>
                         ) : (
                           <span style={{ fontSize: '11px', color: '#B45309' }}>
-                            (Name + Aadhaar required)
+                            (Name + Record ID required)
                           </span>
                         )}
                       </div>
@@ -1120,7 +1120,7 @@ export default function CitizenPortalView({
 
                       <div className="form-group" style={{ margin: 0 }}>
                         <label className="form-label" style={{ fontSize: '11px' }}>
-                          Neighbour Aadhaar Card Number <span style={{ color: '#DC2626' }}>*</span>
+                          Neighbour Record ID <span style={{ color: '#DC2626' }}>*</span>
                         </label>
                         <input
                           type="text"
@@ -1257,7 +1257,7 @@ export default function CitizenPortalView({
                   Statutory Community Consensus Verification Engine
                 </span>
                 <h4 style={{ fontSize: '16px', fontWeight: 800, margin: '2px 0 0 0', color: isConsensusThresholdMet ? '#14532D' : '#78350F' }}>
-                  Consensus Score: {consensusScore} / 5
+                  Consensus Score: Score {consensusScore} (≥5 required)
                 </h4>
               </div>
               <div>
@@ -1265,7 +1265,7 @@ export default function CitizenPortalView({
                   className={`status-pill ${isConsensusThresholdMet ? 'verified' : 'pending'}`}
                   style={{ fontSize: '12px', padding: '6px 14px', fontWeight: 800 }}
                 >
-                  {isConsensusThresholdMet ? '✓ Statutory Threshold Met (5/5)' : `⚠️ Below Threshold (${consensusScore}/5)`}
+                  {isConsensusThresholdMet ? '✓ Statutory Threshold Met (Score ≥5 required)' : `⚠️ Below Threshold: Score ${consensusScore} (≥5 required)`}
                 </span>
               </div>
             </div>
@@ -1283,7 +1283,7 @@ export default function CitizenPortalView({
                 borderRadius: '12px', 
                 fontWeight: 600 
               }}>
-                Boundary Neighbours: +{neighbourPoints} Pts ({validNeighbours.length}/3 with Aadhaar)
+                Boundary Neighbours: +{neighbourPoints} Pts ({validNeighbours.length}/3 with Record ID)
               </span>
               <span style={{ 
                 background: ngoPoints > 0 ? '#DCFCE7' : '#FFFFFF', 
@@ -1299,8 +1299,8 @@ export default function CitizenPortalView({
 
             {!isConsensusThresholdMet && (
               <div style={{ marginTop: '12px', fontSize: '12px', color: '#92400E', lineHeight: 1.5, background: '#FEF3C7', padding: '10px 12px', borderRadius: 'var(--radius-sm)' }}>
-                <strong>🔒 Cannot Record Claim:</strong> Under statutory consensus rules, this land claim requires a confidence score of at least <strong>5/5</strong> to be officially recorded.
-                Please provide <strong>adjoining neighbours (with name & Aadhaar number)</strong> and/or <strong>certified NGO endorsement</strong> above to satisfy consensus.
+                <strong>🔒 Cannot Record Claim:</strong> Under statutory consensus rules, this land claim requires a confidence score of at least <strong>Score ≥5 (≥5 required)</strong> to be officially recorded.
+                Please provide <strong>adjoining neighbours (with name & record ID)</strong> and/or <strong>certified NGO endorsement</strong> above to satisfy consensus.
               </div>
             )}
           </div>
@@ -1332,11 +1332,11 @@ export default function CitizenPortalView({
               type="submit" 
               className="btn-gradient"
               style={!isConsensusThresholdMet ? { opacity: 0.6, cursor: 'not-allowed', filter: 'grayscale(0.7)' } : {}}
-              title={!isConsensusThresholdMet ? 'Consensus score must reach 5/5 to record land claim' : 'Submit Land Claim'}
+              title={!isConsensusThresholdMet ? 'Consensus score must reach Score ≥5 (≥5 required) to record land claim' : 'Submit Land Claim'}
             >
               {isConsensusThresholdMet 
-                ? 'Submit Land Claim for Official Cadastre Entry (Score: 5/5 ✓) →' 
-                : `🔒 Consensus Score (${consensusScore}/5) Below Threshold — Cannot Record`}
+                ? 'Submit Land Claim for Official Cadastre Entry (Score ≥5 required ✓) →' 
+                : `🔒 Consensus Score (${consensusScore}) Below Threshold: Score ${consensusScore} (≥5 required) — Cannot Record`}
             </button>
           </div>
         </form>
@@ -1837,7 +1837,7 @@ export default function CitizenPortalView({
                             {new Date(app.createdAt).toLocaleDateString('en-IN')}
                           </div>
                           <a
-                            href={app.explorerUrl || `https://testnetscan.mstblockchain.com/tx/${app.approvalTxHash || app.txHash || '0x4af4bce5a3349416bd697a7da55958d5a87b17be2494d00fba4cb6e6136c540c'}`}
+                            href={app.explorerUrl || `https://testnet.mstscan.com/tx/${app.approvalTxHash || app.txHash || '0x4af4bce5a3349416bd697a7da55958d5a87b17be2494d00fba4cb6e6136c540c'}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             style={{

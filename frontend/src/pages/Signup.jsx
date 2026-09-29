@@ -37,7 +37,7 @@ export default function Signup() {
 
     const cleanNationalId = formData.nationalIdCode.trim();
     if (!cleanNationalId || cleanNationalId.length < 4 || !/^[A-Za-z0-9_-]{4,40}$/.test(cleanNationalId)) {
-      errors.nationalIdCode = 'Aadhaar Card number must be 4–40 alphanumeric characters (hyphens allowed).';
+      errors.nationalIdCode = 'Record ID must be 4–40 alphanumeric characters (hyphens allowed).';
     }
 
     if (!formData.password || formData.password.length < 10) {
@@ -240,18 +240,18 @@ export default function Signup() {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Aadhaar Card Number</label>
+            <label className="form-label">Record ID Number</label>
             <input 
               type="text" 
               name="nationalIdCode"
               className="form-input" 
-              placeholder="e.g. 5432-8765-1092 or Aadhaar Number"
+              placeholder="e.g. 5432-8765-1092 or Record ID"
               value={formData.nationalIdCode}
               onChange={handleChange}
               autoComplete="off"
             />
             <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-              Your Aadhaar Card number is hashed with a cryptographic pepper and never stored in plain text.
+              Your Record ID number is hashed with a cryptographic pepper and never stored in plain text.
             </span>
             {fieldErrors.nationalIdCode && (
               <span style={{ fontSize: '12px', color: '#DC2626', marginTop: '4px' }}>

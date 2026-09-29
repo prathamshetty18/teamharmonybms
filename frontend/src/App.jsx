@@ -117,7 +117,7 @@ function MainApp() {
     addNotification({
       type: 'info',
       title: '✓ Ground Inspection Attested On-Chain',
-      body: `Confidence score for ${landId} elevated to statutory consensus threshold (5/5).`,
+      body: `Confidence score for ${landId} elevated to statutory consensus threshold: Score ≥5 (≥5 required).`,
       txHash: updated.txHash,
       explorerUrl: updated.explorerUrl
     });

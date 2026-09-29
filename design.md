@@ -225,7 +225,7 @@ None --(assess)--> Assessed --(2 matching approvals)--> Approved --(release)--> 
 | Function | Signature | Description |
 |---|---|---|
 | `createClaim` | `(bytes32 ownerHash, bytes32 evidenceHash, uint32 latE6, uint32 lonE6)` | Creates a claim; emits `ClaimCreated` |
-| `attest` | `(uint256 claimId, uint8 role)` | Adds a role-weighted signature; updates status |
+| `attest` | `(uint256 claimId)` | Adds a role-weighted signature (role resolved on-chain); updates status |
 | `dispute` | `(uint256 claimId)` | Flags a conflicting claim |
 | `resolveDispute` | `(uint256 claimId, bool restore)` | Arbiter resolves a dispute |
 | `setRole` | `(address user, uint8 role)` | Admin only; defines attester roles |

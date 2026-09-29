@@ -562,7 +562,7 @@ export default function GovernmentPortalView({
                           <div style={{ fontWeight: 800, fontFamily: 'var(--font-mono)' }}>{p.landId}</div>
                           <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{p.applicationId}</div>
                           <a
-                            href={p.explorerUrl || `https://testnetscan.mstblockchain.com/tx/${p.approvalTxHash || p.txHash || '0x3dd8689e5b428bde63bf806edbdfcbdfaf759dd7082b8ff15d4afe0cc5201892'}`}
+                            href={p.explorerUrl || `https://testnet.mstscan.com/tx/${p.approvalTxHash || p.txHash || '0x3dd8689e5b428bde63bf806edbdfcbdfaf759dd7082b8ff15d4afe0cc5201892'}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             style={{
@@ -871,7 +871,7 @@ export default function GovernmentPortalView({
                             {new Date(app.createdAt).toLocaleDateString('en-IN')}
                           </div>
                           <a
-                            href={app.explorerUrl || `https://testnetscan.mstblockchain.com/tx/${app.approvalTxHash || app.txHash || '0x4af4bce5a3349416bd697a7da55958d5a87b17be2494d00fba4cb6e6136c540c'}`}
+                            href={app.explorerUrl || `https://testnet.mstscan.com/tx/${app.approvalTxHash || app.txHash || '0x4af4bce5a3349416bd697a7da55958d5a87b17be2494d00fba4cb6e6136c540c'}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             style={{
@@ -1006,15 +1006,15 @@ export default function GovernmentPortalView({
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '13px', fontWeight: 800, color: isBelowThreshold ? '#991B1B' : '#166534' }}>
-                        Consensus Confidence Score: {currentScore}/5 ({percent}%)
+                      <span style={{ fontSize: '13px', fontWeight: 800, color: isBelowThreshold ? '#991B1B' : '#14532D' }}>
+                        Consensus Confidence Score: Score {currentScore} (≥5 required) ({percent}%)
                       </span>
                       <span className={`status-pill ${isBelowThreshold ? 'mismatch' : 'verified'}`} style={{ fontSize: '10px', padding: '2px 8px' }}>
                         {isBelowThreshold ? '⚠️ Sub-Threshold (Score < 5)' : '✓ Statutory Threshold Met'}
                       </span>
                     </div>
                     <span style={{ fontSize: '11px', fontWeight: 700, color: isBelowThreshold ? '#B91C1C' : '#15803D' }}>
-                      Required Threshold: 5/5
+                      Required Threshold: Score ≥5 (≥5 required)
                     </span>
                   </div>
 
@@ -1026,7 +1026,7 @@ export default function GovernmentPortalView({
                   {isBelowThreshold ? (
                     <div>
                       <p style={{ fontSize: '12px', color: '#991B1B', margin: '0 0 10px 0', lineHeight: 1.4 }}>
-                        <strong>Registration Blocked:</strong> Under statutory cadastral rules, land cannot be registered when the confidence score is below 5/5. Ground inspection and neighbor consensus attestation must be satisfied before this title seal can be issued.
+                        <strong>Registration Blocked:</strong> Under statutory cadastral rules, land cannot be registered when the confidence score is below Score ≥5 (≥5 required). Ground inspection and neighbor consensus attestation must be satisfied before this title seal can be issued.
                       </p>
                       <button
                         type="button"
@@ -1074,10 +1074,10 @@ export default function GovernmentPortalView({
                     onClick={handleApproveClaimSubmit}
                     disabled={isBelowThreshold || isSubmittingApproval}
                     style={isBelowThreshold ? { opacity: 0.55, cursor: 'not-allowed', filter: 'grayscale(0.8)' } : {}}
-                    title={isBelowThreshold ? 'Confidence score must be at least 5/5 to register land' : 'Issue Official Verification Seal'}
+                    title={isBelowThreshold ? 'Confidence score must be at least Score ≥5 (≥5 required) to register land' : 'Issue Official Verification Seal'}
                   >
                     {isBelowThreshold 
-                      ? `🔒 Cannot Register Land: Score (${currentScore}/5) Below 5/5 Threshold`
+                      ? `🔒 Cannot Register Land: Score ${currentScore} (≥5 required)`
                       : 'Issue Official Verification Seal (LAND STATUS: VERIFIED ✓)'}
                   </button>
                 );

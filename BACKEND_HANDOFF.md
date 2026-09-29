@@ -206,10 +206,7 @@ If you find any of these in the backend codebase, replace with the correct name 
 | `Attested` (event) | `ClaimAttested` |
 | `Disputed` (event) | `ClaimDisputed` |
 | `txRef` (arg on PayoutReleased) | **Does not exist** — remove it |
-| `admin` (arg on ReliefCreated) | **Does not exist** — remove it |
-| `attest(claimId, role)` | `attest(claimId)` — role is read from on-chain mapping |
-
-**Grep check run on this repo (2026-09-28):** No deprecated names found in `scripts/` or `test/`. The only hits for `ClaimAttested`/`ClaimDisputed` are correct usages.
+| `attest(uint256 claimId)` | role is read from on-chain mapping (replaces deprecated `attest(claimId, role)`) |
 
 ---
 
