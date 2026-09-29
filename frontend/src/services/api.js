@@ -112,6 +112,7 @@ function logAuditAction({ action, targetId, targetType, details, actorName, acto
     timestamp: new Date().toISOString(),
     displayTime: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ', ' + new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
   };
+  const logs = getLocalAuditLogs();
   const updated = [entry, ...logs];
   saveLocalAuditLogs(updated);
   return entry;

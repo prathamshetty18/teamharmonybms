@@ -45,7 +45,7 @@ export default function NotificationStack({ notifications, onDismiss }) {
                       textDecoration: 'underline'
                     }}
                   >
-                    <span>🔗 View MST On-Chain Tx ({(notif.txHash).slice(0, 10)}...{(notif.txHash).slice(-6)}) ↗</span>
+                    <span>🔗 View MST On-Chain Tx ({String(notif.txHash || '').slice(0, 10)}...{String(notif.txHash || '').slice(-6)}) ↗</span>
                   </a>
                 </div>
               )}
