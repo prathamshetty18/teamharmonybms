@@ -226,10 +226,9 @@ export default function CitizenPortalView({
       // 1. Calculate SHA-256 of file in browser
       const sha256Hex = await computeSha256(file);
 
-      // 2. Prepare FormData
+      // 2. Prepare FormData (multer expects strictly 'document')
       const formData = new FormData();
       formData.append('document', file);
-      formData.append('file', file);
       formData.append('documentType', 'title_deed');
 
       // 3. Post to /api/documents/scan
@@ -1213,6 +1212,120 @@ export default function CitizenPortalView({
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 16px', background: '#F8FAFC', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-light)', marginTop: '14px' }}>
                 <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} color="#2563EB" />
                 <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Extracting…</span>
+              </div>
+            )}
+
+            {/* Real OCR Preview Card in Section 3 */}
+            {realOcrPreview && (
+              <div 
+                style={{
+                  background: '#F8FAFC',
+                  border: '1px solid #CBD5E1',
+                  borderRadius: '10px',
+                  padding: '16px 20px',
+                  marginTop: '14px',
+                  marginBottom: '14px',
+                  boxShadow: '0 2px 6px rgba(15, 23, 42, 0.05)'
+                }}
+              >
+                {/* Card Header */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', marginBottom: '14px', borderBottom: '1px solid #E2E8F0', paddingBottom: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <FileCheck size={18} color="#2563EB" />
+                    <h4 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#0F172A' }}>
+                      Document Scan (Preview)
+                    </h4>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: '#0F172A' }}>
+                      Confidence: <span style={{ color: '#16A34A' }}>{realOcrPreview.confidence}%</span>
+                    </span>
+                    <span 
+                      style={{
+                        background: '#FEF3C7',
+                        color: '#92400E',
+                        border: '1px solid #FCD34D',
+                        borderRadius: '16px',
+                        padding: '3px 10px',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}
+                    >
+                      <AlertTriangle size={12} />
+                      Preview Mode — verify fields manually
+                    </span>
+                  </div>
+                </div>
+
+                {/* Extracted Fields */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px 16px', fontSize: '13px', marginBottom: '14px' }}>
+                  <div>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>Survey No:</span>{' '}
+                    <strong style={{ color: '#0F172A' }}>{realOcrPreview.surveyNumber || '—'}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>Plot No:</span>{' '}
+                    <strong style={{ color: '#0F172A' }}>{realOcrPreview.plotNumber || '—'}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>Area:</span>{' '}
+                    <strong style={{ color: '#0F172A' }}>{realOcrPreview.area || '—'}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>Village:</span>{' '}
+                    <strong style={{ color: '#0F172A' }}>{realOcrPreview.village || '—'}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>District:</span>{' '}
+                    <strong style={{ color: '#0F172A' }}>{realOcrPreview.district || '—'}</strong>
+                  </div>
+                </div>
+
+                {/* SHA-256 Hash Row */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', background: '#FFFFFF', borderRadius: '6px', border: '1px solid #E2E8F0', marginBottom: '14px', fontSize: '12px' }}>
+                  <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>SHA-256:</span>
+                  <code style={{ fontFamily: 'monospace', color: '#334155', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={realOcrPreview.sha256}>
+                    {realOcrPreview.sha256}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => handleCopySha(realOcrPreview.sha256)}
+                    className="btn-outline-pill"
+                    style={{ fontSize: '11px', padding: '3px 8px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    {copiedSha ? <Check size={12} color="#16A34A" /> : <Copy size={12} />}
+                    {copiedSha ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+
+                {/* Card Action Buttons */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <button
+                    type="button"
+                    className="btn-black-pill"
+                    onClick={handleApplyOcrToForm}
+                    style={{ fontSize: '12px', padding: '7px 16px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <CheckCircle2 size={14} />
+                    Apply to Form
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-outline-pill"
+                    onClick={() => setRealOcrPreview(null)}
+                    style={{ fontSize: '12px', padding: '7px 14px' }}
+                  >
+                    Dismiss
+                  </button>
+                  {ocrApplied && (
+                    <span style={{ fontSize: '12px', color: '#16A34A', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      <Check size={14} /> Applied
+                    </span>
+                  )}
+                </div>
               </div>
             )}
 
