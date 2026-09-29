@@ -893,6 +893,10 @@ function createStore(collectionName, idField) {
         updatedAt: new Date().toISOString()
       };
 
+      if (collectionName === 'documents' && (updates.ocrEncrypted || updates.ocrText === null)) {
+        delete updated.ocrText;
+      }
+
       getMemStore(collectionName).set(strId, updated);
 
       const col = getCollection(collectionName);
@@ -941,6 +945,7 @@ const disputes = createStore('disputes', 'disputeId');
 const disasters = createStore('disasters', 'id');
 const disasterAssessments = createStore('disasterAssessments', 'id');
 const notifications = createStore('notifications', 'id');
+const ocrJobs = createStore('ocrJobs', 'id');
 
 // Custom lookup extensions for notifications
 notifications.getByLandId = async function(landId) {
@@ -1306,7 +1311,12 @@ module.exports = {
   disasters,
   disasterAssessments,
   notifications,
+  ocrJobs,
   recordNotification,
+  getAllOcrJobs: () => ocrJobs.getAll(),
+  getOcrJobById: (id) => ocrJobs.getById(id),
+  saveOcrJob: (j) => ocrJobs.save(j),
+  updateOcrJob: (id, updates) => ocrJobs.update(id, updates),
   getAllNotifications: () => notifications.getAll(),
   getNotificationById: (id) => notifications.getById(id),
   getNotificationsByLandId: (landId) => notifications.getByLandId(landId),

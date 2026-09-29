@@ -17,6 +17,7 @@ const testFiles = [
   'phaseDExtended.test.js',
   'phaseE.test.js',
   'phaseF.test.js',
+  'documents.ocr.test.js',
   'test.js'
 ];
 

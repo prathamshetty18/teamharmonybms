@@ -130,7 +130,7 @@ app.use((err, req, res, next) => {
   if (res.headersSent) {
     return next(err);
   }
-  const statusCode = err.status || err.statusCode || (err.name === 'ValidationError' ? 400 : 500);
+  const statusCode = err.status || err.statusCode || (err.name === 'ValidationError' || err.name === 'MulterError' ? 400 : 500);
   res.status(statusCode).json({
     error: err.message || 'Internal server error'
   });
