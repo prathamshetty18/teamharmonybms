@@ -785,6 +785,98 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
   });
 
   // -------------------------------------------------------------
+  // 11b. POST /claims/:id/approve - Government Officer approves land claim
+  // -------------------------------------------------------------
+  router.post(['/claims/:id/approve', '/parcels/:id/approve'], requireRole(ROLES.GOVERNMENT_OFFICER), async (req, res, next) => {
+    try {
+      let claim = await store.getById('claims', req.params.id);
+      if (!claim) {
+        // Fallback: check on-chain or payload
+        const rawId = req.params.id;
+        const numId = parseInt(String(rawId).replace(/\D/g, ''), 10);
+        if (!isNaN(numId) && chain && typeof chain.getClaim === 'function') {
+          try {
+            const chainClaim = await chain.getClaim(numId);
+            if (chainClaim) {
+              const newDoc = {
+                claimId: String(numId),
+                landId: String(numId),
+                ownerName: req.body.ownerName || req.body.farmerName || req.body.citizenName || 'Landowner',
+                score: chainClaim.score != null ? Number(chainClaim.score) : 5,
+                status: chainClaim.status || 'Verified',
+                onChainStatus: chainClaim.status || 'Verified',
+                verificationStatus: 'APPROVED',
+                workflowStatus: 'Approved',
+                surveyNumber: req.body.surveyNumber || `${100 + numId}/1`,
+                areaAcres: req.body.areaAcres || 3.0,
+                village: req.body.village || 'Mandya',
+                district: req.body.district || 'Mandya',
+                state: req.body.state || 'Karnataka',
+                landUseFarmerDeclared: req.body.finalClassification || 'Agricultural / Farmland',
+                landUseGovtRecord: req.body.finalClassification || 'Agricultural / Farmland',
+                landUseFinalApproved: req.body.finalClassification || 'Agricultural / Farmland',
+                ownerHash: chainClaim.ownerHash || '',
+                evidenceHash: chainClaim.evidenceHash || ''
+              };
+              claim = await store.save('claims', newDoc);
+            }
+          } catch (e) {
+            console.warn('[claimsRoutes approve fallback chain error]:', e.message);
+          }
+        }
+      }
+
+      if (!claim) {
+        return res.status(404).json({ error: `Claim with id '${req.params.id}' not found` });
+      }
+
+      const score = claim.score != null ? Number(claim.score) : (claim.verificationScore != null ? Number(claim.verificationScore) : 0);
+      if (score < 5) {
+        return res.status(400).json({
+          error: "Claim not verified",
+          score: score,
+          threshold: 5,
+          claimId: Number(claim.claimId || req.params.id) || req.params.id
+        });
+      }
+
+      const updates = {
+        status: 'Verified',
+        verificationStatus: 'APPROVED',
+        onChainStatus: 'Verified',
+        workflowStatus: 'Approved',
+        verifiedByOfficer: req.user ? req.user.name : (req.body.officerName || 'District Revenue Officer'),
+        verificationDate: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+        updatedAt: new Date().toISOString()
+      };
+      if (req.body.finalClassification) {
+        updates.finalClassification = req.body.finalClassification;
+        updates.landUseFinalApproved = req.body.finalClassification;
+      }
+
+      const targetClaimId = claim.claimId != null ? String(claim.claimId) : String(req.params.id);
+      const updated = await store.update('claims', targetClaimId, updates);
+
+      await store.recordAuditLog({
+        who: req.user ? `${req.user.name} (${req.user.role})` : 'Government Officer',
+        what: 'CLAIM_APPROVED_VERIFIED',
+        landId: targetClaimId,
+        prevValue: claim.status,
+        newValue: 'Verified',
+        remarks: `Official title seal granted. Confidence score ${score}/5 verified.`,
+        metadata: { score, threshold: 5 }
+      });
+
+      res.status(200).json({
+        message: `Claim ${targetClaimId} approved successfully`,
+        claim: updated
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // -------------------------------------------------------------
   // 12. POST /claims/:id/approve-payout - Officer approval
   // -------------------------------------------------------------
   router.post('/claims/:id/approve-payout', requireRole(ROLES.GOVERNMENT_OFFICER), validateApprovePayoutInput, async (req, res, next) => {
@@ -792,6 +884,16 @@ module.exports = function createClaimsRoutes(upload, chainClient = null) {
       const claim = await store.getById('claims', req.params.id);
       if (!claim) {
         return res.status(404).json({ error: `Claim with id '${req.params.id}' not found` });
+      }
+
+      const claimScore = claim.score != null ? Number(claim.score) : 0;
+      if (claimScore < 5) {
+        return res.status(400).json({
+          error: "Claim not verified",
+          score: claimScore,
+          threshold: 5,
+          claimId: Number(req.params.id) || req.params.id
+        });
       }
 
       const { reliefId, officer, amount, beneficiaryAddress, beneficiary } = req.body;

@@ -126,7 +126,9 @@ app.use('/notifications', notificationRoutes);
 app.use('/api/notifications', notificationRoutes);
 
 // Mount claims and relief routes
-app.use('/', createClaimsRoutes(upload));
+const claimsRouter = createClaimsRoutes(upload);
+app.use('/', claimsRouter);
+app.use('/api', claimsRouter);
 
 // Central error handler - ALWAYS returning { "error": "..." }
 app.use((err, req, res, next) => {
@@ -181,7 +183,7 @@ if (process.env.NODE_ENV !== 'test') {
     console.log(`[Server] Environment: PORT=${PORT}`);
     // Attempt database connection on startup
     await connectDB();
-    await seedDefaultOfficer();
+    // await seedDefaultOfficer();
   });
 }
 

@@ -156,13 +156,13 @@ router.post('/signup', async (req, res) => {
  * POST /api/auth/login
  * Body: { nationalIdCode, password }
  */
-router.post('/login', async (req, res) => {
+router.post('/login', async (req, res, next) => {
   try {
-    const { name, username, nationalIdCode, password } = req.body || {};
+    const { name, username, nationalIdCode, contact, password } = req.body || {};
 
-    const identifier = name || username || nationalIdCode;
+    const identifier = name || username || nationalIdCode || contact;
     if (!identifier || typeof identifier !== 'string' || !identifier.trim()) {
-      return res.status(400).json({ error: 'Name and password are required. Name cannot be null.' });
+      return next();
     }
 
     if (!password) {
@@ -188,10 +188,9 @@ router.post('/login', async (req, res) => {
       user = await User.findByLookupHash(lookupHash);
     }
 
-    // If not found → return 401 { error: "Invalid credentials." } (never say "user not found")
+    // If not found in citizen User model -> pass to next auth handler
     if (!user) {
-      recordFailedAttempt(rateLimitKey);
-      return res.status(401).json({ error: 'Invalid credentials.' });
+      return next();
     }
 
     // Verify password with argon2
@@ -211,9 +210,13 @@ router.post('/login', async (req, res) => {
     // On success: clear failed attempts
     clearFailedAttempts(rateLimitKey);
 
+    const assignedRole = (user.role === 'government' || user.role === 'GOVERNMENT' || user.role === 'Government Officer')
+      ? 'Government Officer'
+      : ((user.role === 'citizen' || user.role === 'CITIZEN' || user.role === 'Farmer') ? 'Farmer' : (user.role || 'Farmer'));
+
     // Issue JWT
     const token = jwt.sign(
-      { userId: user.userId, role: user.role || 'citizen', signer: user.role === 'government' ? (process.env.OFFICER1_KEY || 'officer') : null },
+      { userId: user.userId, role: assignedRole, signer: assignedRole === 'Government Officer' ? (process.env.OFFICER1_KEY || 'officer') : null },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
@@ -221,11 +224,12 @@ router.post('/login', async (req, res) => {
     return res.status(200).json({
       jwt: token,
       userId: user.userId,
-      role: user.role || 'citizen',
+      role: assignedRole,
       name: user.name
     });
   } catch (err) {
-    return res.status(500).json({ error: 'Internal server error during login.' });
+    console.error('[Auth Error]:', err);
+    return res.status(500).json({ error: 'Internal server error during login.', details: err.message });
   }
 });
 

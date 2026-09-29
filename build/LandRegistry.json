@@ -3,6 +3,15 @@
   "abi": [
     {
       "type": "function",
+      "name": "totalClaims",
+      "inputs": [],
+      "outputs": [
+        { "name": "", "type": "uint256" }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
       "name": "createClaim",
       "inputs": [
         { "name": "claimant", "type": "address" },

@@ -787,19 +787,19 @@ const initialDisasterAssessments = [
   }
 ];
 
-// In-memory cache structures
+// In-memory cache structures (clean/empty by default)
 const memoryStore = {
-  claims: new Map(initialClaims.map(c => [String(c.claimId), { ...c }])),
-  reliefs: new Map(initialReliefs.map(r => [String(r.reliefId), { ...r }])),
-  payouts: new Map(initialPayouts.map(p => [String(p.claimId), { ...p }])),
-  users: new Map(initialUsers.map(u => [String(u.id), { ...u }])),
-  documents: new Map(initialDocuments.map(d => [String(d.id), { ...d }])),
-  auditLogs: new Map(initialAuditLogs.map(a => [String(a.id), { ...a }])),
+  claims: new Map(),
+  reliefs: new Map(),
+  payouts: new Map(),
+  users: new Map(),
+  documents: new Map(),
+  auditLogs: new Map(),
   valuations: new Map(),
   disputes: new Map(),
-  disasters: new Map(initialDisasters.map(d => [String(d.id), { ...d }])),
-  disasterAssessments: new Map(initialDisasterAssessments.map(a => [String(a.id), { ...a }])),
-  notifications: new Map(initialNotifications.map(n => [String(n.id), { ...n }]))
+  disasters: new Map(),
+  disasterAssessments: new Map(),
+  notifications: new Map()
 };
 
 function getMemStore(collectionName) {
@@ -820,7 +820,7 @@ function createStore(collectionName, idField) {
       if (isDbConnected() && col) {
         try {
           const docs = await col.find(filter, { projection: { _id: 0 } }).toArray();
-          if (docs && docs.length > 0) return docs;
+          if (Array.isArray(docs)) return docs;
         } catch (e) {
           console.warn(`[Store] Error querying MongoDB ${collectionName}:`, e.message);
         }
@@ -835,12 +835,32 @@ function createStore(collectionName, idField) {
     },
 
     async getById(id) {
+      if (id === undefined || id === null) return null;
       const col = getCollection(collectionName);
-      const strId = String(id);
+      const strId = String(id).trim();
+      const candidateIds = [strId];
+      const digitsOnly = strId.replace(/\D/g, '');
+      if (digitsOnly) {
+        const parsedNum = parseInt(digitsOnly, 10);
+        if (!isNaN(parsedNum)) {
+          const numStr = String(parsedNum);
+          if (!candidateIds.includes(numStr)) candidateIds.push(numStr);
+          if (!candidateIds.includes(parsedNum)) candidateIds.push(parsedNum);
+          const padded = numStr.padStart(6, '0');
+          if (!candidateIds.includes(padded)) candidateIds.push(padded);
+          const clmPadded = `CLM-${padded}`;
+          if (!candidateIds.includes(clmPadded)) candidateIds.push(clmPadded);
+        }
+      }
+
       if (isDbConnected() && col) {
         try {
+          const orConditions = [{ [idField]: { $in: candidateIds } }];
+          if (collectionName === 'claims' && idField !== 'landId') {
+            orConditions.push({ landId: { $in: candidateIds } });
+          }
           const doc = await col.findOne(
-            { [idField]: strId },
+            { $or: orConditions },
             { projection: { _id: 0 } }
           );
           if (doc) return doc;
@@ -848,7 +868,13 @@ function createStore(collectionName, idField) {
           console.warn(`[Store] Error querying ${collectionName} by ID in MongoDB:`, e.message);
         }
       }
-      return getMemStore(collectionName).get(strId) || null;
+
+      const mem = getMemStore(collectionName);
+      for (const cid of candidateIds) {
+        const key = String(cid);
+        if (mem.has(key)) return mem.get(key);
+      }
+      return null;
     },
 
     async save(doc) {
@@ -880,16 +906,17 @@ function createStore(collectionName, idField) {
     },
 
     async update(id, updates) {
-      const strId = String(id);
-      const existing = getMemStore(collectionName).get(strId) || (await this.getById(strId));
+      const strId = String(id).trim();
+      const existing = await this.getById(strId);
       if (!existing) {
         return null;
       }
+      const primaryId = existing[idField] != null ? String(existing[idField]) : strId;
 
       const updated = {
         ...existing,
         ...updates,
-        [idField]: strId,
+        [idField]: primaryId,
         updatedAt: new Date().toISOString()
       };
 
@@ -897,13 +924,16 @@ function createStore(collectionName, idField) {
         delete updated.ocrText;
       }
 
-      getMemStore(collectionName).set(strId, updated);
+      getMemStore(collectionName).set(primaryId, updated);
+      if (primaryId !== strId) {
+        getMemStore(collectionName).set(strId, updated);
+      }
 
       const col = getCollection(collectionName);
       if (isDbConnected() && col) {
         try {
           await col.updateOne(
-            { [idField]: strId },
+            { [idField]: primaryId },
             { $set: updated }
           );
         } catch (e) {
@@ -915,15 +945,18 @@ function createStore(collectionName, idField) {
     },
 
     async delete(id) {
-      const strId = String(id);
+      const strId = String(id).trim();
+      const existing = await this.getById(strId);
+      const primaryId = existing && existing[idField] != null ? String(existing[idField]) : strId;
       const mem = getMemStore(collectionName);
-      const existed = mem.has(strId) || Boolean(await this.getById(strId));
+      const existed = mem.has(primaryId) || mem.has(strId) || Boolean(existing);
+      mem.delete(primaryId);
       mem.delete(strId);
 
       const col = getCollection(collectionName);
       if (isDbConnected() && col) {
         try {
-          await col.deleteOne({ [idField]: strId });
+          await col.deleteOne({ [idField]: primaryId });
         } catch (e) {
           console.warn(`[Store] Error deleting from ${collectionName} in MongoDB:`, e.message);
         }

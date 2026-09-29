@@ -437,11 +437,12 @@ export const api = {
   // Government Official approves or grants final verification
   async approveLandClaim(landId, approvalData = {}) {
     const rawId = String(landId).replace(/\D/g, '') || landId;
+    const cleanId = String(parseInt(rawId, 10) || rawId);
     if (USE_REAL_API) {
       try {
-        const response = await http.post(`/api/claims/${rawId}/approve`, approvalData);
+        const response = await http.post(`/api/claims/${cleanId}/approve`, approvalData);
         const parcels = getLocalParcels();
-        const idx = parcels.findIndex(p => p.landId === landId || p.claimId === landId || p.claimId === rawId);
+        const idx = parcels.findIndex(p => p.landId === landId || p.claimId === landId || p.claimId === rawId || p.claimId === cleanId);
         if (idx !== -1) {
           parcels[idx] = { 
             ...parcels[idx], 

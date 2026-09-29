@@ -23,7 +23,7 @@ function normalizeRole(roleInput) {
   if (!roleInput || typeof roleInput !== 'string') return null;
   const cleaned = roleInput.trim().toLowerCase().replace(/[-_]/g, ' ');
 
-  if (cleaned === 'farmer') return ROLES.FARMER;
+  if (cleaned === 'farmer' || cleaned === 'citizen') return ROLES.FARMER;
 
   if (
     cleaned === 'ground verification officer' ||
@@ -51,6 +51,8 @@ function normalizeRole(roleInput) {
   if (
     cleaned === 'government officer' ||
     cleaned === 'govt officer' ||
+    cleaned === 'government' ||
+    cleaned === 'govt' ||
     cleaned === 'officer' ||
     cleaned === 'admin' ||
     cleaned === 'registrar' ||
