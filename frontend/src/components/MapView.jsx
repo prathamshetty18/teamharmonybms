@@ -7,11 +7,18 @@ export default function MapView({
   onSelectParcel,
   isDrawingMode,
   newPin,
-  onMapClick 
+  onMapClick,
+  showGisOverlay = false,
+  claimId = null
 }) {
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const layersRef = useRef([]);
+  const gisLayersRef = useRef([]);
+
+  const isGisFeatureEnabled = 
+    (typeof import.meta !== 'undefined' && (import.meta.env?.VITE_FEATURE_GIS_BOUNDARY === 'true' || import.meta.env?.FEATURE_GIS_BOUNDARY === 'true')) ||
+    (typeof window !== 'undefined' && (window.FEATURE_GIS_BOUNDARY === true || window.FEATURE_GIS_BOUNDARY === 'true'));
 
   useEffect(() => {
     if (!mapContainerRef.current) return;
@@ -157,6 +164,145 @@ export default function MapView({
     if (!map || !selectedParcel) return;
     map.flyTo([selectedParcel.lat, selectedParcel.lon], 16, { duration: 1 });
   }, [selectedParcel]);
+
+  // Read-only GIS Boundary & Nearby Overlay Effect
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    // Clean up any existing GIS layers
+    gisLayersRef.current.forEach(layer => {
+      try { map.removeLayer(layer); } catch (_) {}
+    });
+    gisLayersRef.current = [];
+
+    if (!isGisFeatureEnabled || !showGisOverlay || !claimId) {
+      return;
+    }
+
+    let isMounted = true;
+
+    const fetchGisData = async () => {
+      try {
+        // 1. Fetch Boundary
+        const boundaryRes = await fetch(`/api/gis/boundary/${claimId}`);
+        if (!boundaryRes.ok) {
+          console.warn(`GIS overlay: boundary fetch failed with status ${boundaryRes.status}`);
+          return;
+        }
+        const boundaryData = await boundaryRes.json();
+        if (!isMounted || !mapInstanceRef.current) return;
+
+        if (boundaryData && boundaryData.boundary && boundaryData.boundary.geometry) {
+          // Draw polygon with solid outline and light fill
+          const boundaryLayer = L.geoJSON(boundaryData.boundary, {
+            style: {
+              color: '#2563EB',
+              weight: 3,
+              fillColor: '#3B82F6',
+              fillOpacity: 0.25
+            }
+          }).addTo(map);
+
+          gisLayersRef.current.push(boundaryLayer);
+
+          if (boundaryLayer.getBounds && boundaryLayer.getBounds().isValid()) {
+            map.fitBounds(boundaryLayer.getBounds(), { padding: [40, 40] });
+          }
+        }
+
+        // Place centroid marker with popup Area: <acres> acres · Perimeter: <m> m
+        if (boundaryData && boundaryData.metrics) {
+          const m = boundaryData.metrics;
+          const centroid = m.centroid; // [lon, lat] in GeoJSON
+          if (Array.isArray(centroid) && centroid.length >= 2) {
+            const centerLatLng = [centroid[1], centroid[0]];
+            const acresStr = m.areaAcres !== undefined ? m.areaAcres : '';
+            const perimM = m.perimeterKm !== undefined ? Math.round(m.perimeterKm * 1000) : (m.perimeterM || 0);
+
+            const centroidMarker = L.marker(centerLatLng, {
+              icon: L.divIcon({
+                className: 'gis-centroid-pin',
+                html: `
+                  <div style="
+                    background: #1D4ED8;
+                    color: white;
+                    padding: 2px 8px;
+                    border-radius: 9999px;
+                    font-size: 11px;
+                    font-weight: 700;
+                    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+                    border: 2px solid white;
+                    white-space: nowrap;
+                  ">
+                    📍 Centroid #${boundaryData.claimId || claimId}
+                  </div>
+                `,
+                iconSize: [110, 24],
+                iconAnchor: [55, 12]
+              })
+            }).addTo(map);
+
+            centroidMarker.bindPopup(`Area: ${acresStr} acres · Perimeter: ${perimM} m`);
+            gisLayersRef.current.push(centroidMarker);
+
+            map.panTo(centerLatLng);
+          }
+        }
+
+        // 2. Fetch Nearby parcels
+        const nearbyRes = await fetch(`/api/gis/nearby/${claimId}`);
+        if (!nearbyRes.ok) {
+          console.warn(`GIS overlay: nearby fetch failed with status ${nearbyRes.status}`);
+          return;
+        }
+        const nearbyData = await nearbyRes.json();
+        if (!isMounted || !mapInstanceRef.current) return;
+
+        if (nearbyData && Array.isArray(nearbyData.nearby) && nearbyData.nearby.length > 0) {
+          for (const item of nearbyData.nearby) {
+            try {
+              const itemBRes = await fetch(`/api/gis/boundary/${item.claimId}`);
+              if (itemBRes.ok) {
+                const itemBData = await itemBRes.json();
+                if (itemBData && itemBData.boundary && itemBData.boundary.geometry) {
+                  const nearbyLayer = L.geoJSON(itemBData.boundary, {
+                    style: {
+                      color: '#DC2626',
+                      weight: 2,
+                      dashArray: '6, 6',
+                      fillColor: '#F87171',
+                      fillOpacity: 0.2
+                    }
+                  }).addTo(map);
+
+                  const overlapText = item.overlapPct !== undefined ? `Overlap: ${item.overlapPct}%` : 'Nearby Parcel';
+                  nearbyLayer.bindTooltip(overlapText, { sticky: true });
+                  gisLayersRef.current.push(nearbyLayer);
+                }
+              }
+            } catch (err) {
+              console.warn(`Failed loading nearby boundary for ${item.claimId}:`, err);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('GIS overlay fetch failure:', err);
+      }
+    };
+
+    fetchGisData();
+
+    return () => {
+      isMounted = false;
+      if (mapInstanceRef.current) {
+        gisLayersRef.current.forEach(layer => {
+          try { mapInstanceRef.current.removeLayer(layer); } catch (_) {}
+        });
+        gisLayersRef.current = [];
+      }
+    };
+  }, [showGisOverlay, claimId, isGisFeatureEnabled]);
 
   return (
     <div className="map-frame">

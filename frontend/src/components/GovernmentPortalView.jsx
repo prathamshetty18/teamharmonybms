@@ -58,6 +58,18 @@ export default function GovernmentPortalView({
   const [approvalError, setApprovalError] = useState('');
   const [isSubmittingApproval, setIsSubmittingApproval] = useState(false);
 
+  // Selected claim for GIS overlay & inspection (defaults to claim 51)
+  const [selectedClaim, setSelectedClaim] = useState(() => {
+    return parcels.find(p => String(p.landId || p.id) === '51') || (parcels.length > 0 ? parcels[0] : { id: '51', landId: '51' });
+  });
+
+  useEffect(() => {
+    if ((!selectedClaim || !selectedClaim.landId) && parcels.length > 0) {
+      const claim51 = parcels.find(p => String(p.landId || p.id) === '51');
+      setSelectedClaim(claim51 || parcels[0]);
+    }
+  }, [parcels]);
+
   // Relief Modal State (Change 4: Two-step workflow)
   const [selectedReliefApp, setSelectedReliefApp] = useState(null);
   const [reliefVerificationNotes, setReliefVerificationNotes] = useState('');
@@ -472,16 +484,27 @@ export default function GovernmentPortalView({
           {/* Geospatial Map */}
           {parcels.length > 0 && (
             <div className="panel-card">
-              <div className="panel-header">
+              <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                   <h3 className="panel-title">National Cadastral Map View</h3>
                   <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
                     Spatial boundary benchmarks and verified ownership overlays
                   </span>
                 </div>
+                {selectedClaim && (
+                  <span className="status-pill verified" style={{ fontSize: '11px', padding: '3px 10px' }}>
+                    Active GIS Focus: Claim #{selectedClaim?.landId || selectedClaim?.id || '51'}
+                  </span>
+                )}
               </div>
-              <div style={{ height: '360px', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
-                <MapView parcels={parcels} onSelectParcel={() => {}} />
+              <div style={{ height: '380px', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+                <MapView 
+                  parcels={parcels} 
+                  selectedParcel={selectedClaim} 
+                  onSelectParcel={(p) => setSelectedClaim(p)}
+                  showGisOverlay={true}
+                  claimId={selectedClaim?.id || selectedClaim?.claimId || selectedClaim?.landId || '51'}
+                />
               </div>
             </div>
           )}
