@@ -158,6 +158,102 @@ async function runTests() {
     assert(notFoundJson.error, 'Should return error object');
     console.log('   ✓ Unknown land parcel report returns 404 with error message');
 
+    // 1.7 Testing Parcel Map Vector Rendering & Invariants
+    console.log('   -> Testing drawParcelMap & Geospatial Map Invariants in PDF Report...');
+    const { buildReportData, generatePdfReportBuffer, drawParcelMap } = require('./reports');
+    const PDFDocument = require('pdfkit');
+
+    // Test A: Buffer with valid boundary is larger than buffer with boundary missing
+    const reportDataWithBoundary = await buildReportData('1');
+    const pdfWithBoundary = await generatePdfReportBuffer(reportDataWithBoundary);
+    assert.strictEqual(pdfWithBoundary.slice(0, 5).toString('ascii'), '%PDF-', 'PDF buffer starts with %PDF-');
+
+    const reportDataNoBoundary = JSON.parse(JSON.stringify(reportDataWithBoundary));
+    reportDataNoBoundary.map = { coordinates: [] };
+    const pdfNoBoundary = await generatePdfReportBuffer(reportDataNoBoundary);
+    assert.strictEqual(pdfNoBoundary.slice(0, 5).toString('ascii'), '%PDF-', 'Missing boundary still produces valid PDF');
+    assert(
+      pdfWithBoundary.length > pdfNoBoundary.length,
+      `Buffer with valid boundary (${pdfWithBoundary.length} B) must be larger than without boundary (${pdfNoBoundary.length} B)`
+    );
+    console.log(`   ✓ Buffer with valid boundary (${pdfWithBoundary.length} B) > without boundary (${pdfNoBoundary.length} B)`);
+
+    // Test B: Missing/corrupt boundary -> no throw, still valid PDF
+    const reportDataNullBoundary = JSON.parse(JSON.stringify(reportDataWithBoundary));
+    reportDataNullBoundary.map = null;
+    const pdfNullBoundary = await generatePdfReportBuffer(reportDataNullBoundary);
+    assert.strictEqual(pdfNullBoundary.slice(0, 5).toString('ascii'), '%PDF-', 'Null boundary produces valid %PDF');
+    console.log('   ✓ Missing/null boundary handled gracefully with fallback box (no throw, valid PDF)');
+
+    // Test C: MultiPolygon support -> no throw, valid PDF
+    const multiPolygonCoords = [
+      [
+        [
+          [77.5615, 12.9405],
+          [77.5635, 12.9405],
+          [77.5635, 12.9425],
+          [77.5615, 12.9425],
+          [77.5615, 12.9405]
+        ]
+      ],
+      [
+        [
+          [77.5645, 12.9405],
+          [77.5665, 12.9405],
+          [77.5665, 12.9425],
+          [77.5645, 12.9425],
+          [77.5645, 12.9405]
+        ]
+      ]
+    ];
+    const reportDataMultiPoly = JSON.parse(JSON.stringify(reportDataWithBoundary));
+    reportDataMultiPoly.map = { type: 'MultiPolygon', coordinates: multiPolygonCoords, centroid: [77.564, 12.9415] };
+    const pdfMultiPoly = await generatePdfReportBuffer(reportDataMultiPoly);
+    assert.strictEqual(pdfMultiPoly.slice(0, 5).toString('ascii'), '%PDF-', 'MultiPolygon produces valid %PDF');
+    console.log(`   ✓ MultiPolygon rendered cleanly without throw (${pdfMultiPoly.length} B)`);
+
+    // Test D: Tiny polygon & Very large polygon -> no NaN in output stream
+    function renderTestDoc(rings) {
+      return new Promise((resolve, reject) => {
+        const doc = new PDFDocument({ margin: 36, size: 'A4' });
+        const bufs = [];
+        doc.on('data', b => bufs.push(b));
+        doc.on('end', () => resolve(Buffer.concat(bufs)));
+        doc.on('error', reject);
+        drawParcelMap(doc, rings, { x: 36, y: 50, w: 523, h: 160 }, { landId: 'T1' });
+        doc.end();
+      });
+    }
+
+    // Tiny polygon (micro-degrees)
+    const tinyCoords = [
+      [
+        [77.5600001, 12.9400001],
+        [77.5600002, 12.9400001],
+        [77.5600002, 12.9400002],
+        [77.5600001, 12.9400002],
+        [77.5600001, 12.9400001]
+      ]
+    ];
+    const tinyPdf = await renderTestDoc(tinyCoords);
+    assert.strictEqual(tinyPdf.slice(0, 5).toString('ascii'), '%PDF-');
+    assert(!tinyPdf.toString().includes('NaN'), 'Tiny polygon output must contain no NaN values');
+
+    // Very large polygon (continental degrees)
+    const largeCoords = [
+      [
+        [70.0, 10.0],
+        [85.0, 10.0],
+        [85.0, 25.0],
+        [70.0, 25.0],
+        [70.0, 10.0]
+      ]
+    ];
+    const largePdf = await renderTestDoc(largeCoords);
+    assert.strictEqual(largePdf.slice(0, 5).toString('ascii'), '%PDF-');
+    assert(!largePdf.toString().includes('NaN'), 'Large polygon output must contain no NaN values');
+    console.log('   ✓ Tiny and very large polygon scale calculations verified (zero NaN values in PDF)');
+
     // =========================================================
     // 2. Full Non-PII QR Flow & Scan Evaluation (/qr)
     // =========================================================
