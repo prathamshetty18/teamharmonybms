@@ -1,6 +1,7 @@
 # Post-Disaster Land Rights & Relief on MST Blockchain (BhoomiSetu)
 
 > **Preserving community consensus and immutable land claim evidence when physical records are lost, then using that verified proof to release government disaster relief quickly and without fraud.**  
+
 > *Built for BMS College of Engineering 24-Hour Buildathon (September 28–29, 2026) | Team Harmony*
 
 ---
